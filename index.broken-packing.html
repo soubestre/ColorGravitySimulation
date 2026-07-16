@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Color Gravity</title>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --panel: #171a22;
+    --text: #d7dae2;
+    --muted: #8a8fa0;
+    --accent: #6e9fff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100vh;
+    padding: 16px;
+    gap: 12px;
+    overflow: hidden;
+  }
+  h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; flex-shrink: 0; }
+  h1 span { color: var(--muted); font-weight: 400; font-size: 0.85rem; margin-left: 8px; }
+  #viewport {
+    flex: 1;
+    align-self: stretch;
+    min-height: 0;
+    display: flex;
+    gap: 12px;
+  }
+  #stage {
+    flex: 1;
+    min-width: 0;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    background: #090a0e;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    touch-action: none;
+  }
+  .nogpu {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    color: var(--muted);
+    font-size: 0.95rem;
+    text-align: center;
+    padding: 24px;
+  }
+  #viewPanel {
+    flex-shrink: 0;
+    width: 56px;
+    background: var(--panel);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 0;
+  }
+  #viewPanel .group-title {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  #viewPanel output {
+    color: var(--text);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+  }
+  #zoom {
+    writing-mode: vertical-lr;
+    direction: rtl; /* bottom = zoomed out, top = zoomed in */
+    width: 20px;
+    height: 150px;
+    accent-color: var(--accent);
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: stretch;
+    flex-shrink: 0;
+  }
+  .group {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 16px 14px 12px;
+  }
+  .group-title {
+    position: absolute;
+    top: -8px;
+    left: 12px;
+    background: var(--bg);
+    padding: 0 6px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .group-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .controls > button { align-self: center; }
+  .control { display: flex; flex-direction: column; gap: 2px; }
+  select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 0.75rem;
+  }
+  .control label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .control label output { color: var(--text); }
+  input[type="range"] {
+    width: 90px;
+    accent-color: var(--accent);
+  }
+  button {
+    background: var(--accent);
+    color: #0d0f14;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+</style>
+</head>
+<body>
+  <h1>Color Gravity <span>similar hues attract</span></h1>
+  <div id="viewport">
+    <div id="stage"><canvas id="sim"></canvas></div>
+    <div id="viewPanel">
+      <span class="group-title">Zoom</span>
+      <input type="range" id="zoom" min="0.5" max="3" step="0.05" value="1">
+      <output id="zoomOut">1.0×</output>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="group">
+      <span class="group-title">Boules</span>
+      <div class="group-row">
+        <div class="control">
+          <label>Nombre <output id="countOut">1000</output></label>
+          <input type="range" id="count" min="20" max="20000" step="10" value="1000">
+        </div>
+        <div class="control">
+          <label>Diamètre <output id="sizeOut">10</output></label>
+          <input type="range" id="size" min="2" max="24" step="1" value="10">
+        </div>
+        <div class="control">
+          <label>Couleurs</label>
+          <select id="palette">
+            <option value="rainbow" selected>Arc-en-ciel</option>
+            <option value="neon">Néon</option>
+            <option value="pastel">Pastel</option>
+            <option value="jewel">Joyaux</option>
+            <option value="sunset">Coucher de soleil</option>
+            <option value="ocean">Océan</option>
+            <option value="warm">Chaudes</option>
+            <option value="cold">Froides</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="group">
+      <span class="group-title">Physique</span>
+      <div class="group-row">
+        <div class="control">
+          <label>Force <output id="forceOut">1.5</output></label>
+          <input type="range" id="force" min="0.1" max="3" step="0.1" value="1.5">
+        </div>
+        <div class="control">
+          <label>Friction <output id="frictionOut">0.005</output></label>
+          <input type="range" id="friction" min="0" max="0.05" step="0.005" value="0.005">
+        </div>
+        <div class="control">
+          <label>Rebond <output id="bounceOut">1.00</output></label>
+          <input type="range" id="bounce" min="0" max="2" step="0.05" value="1">
+        </div>
+        <div class="control">
+          <label>Vitesse <output id="speedOut">3.0</output></label>
+          <input type="range" id="speed" min="0.5" max="10" step="0.5" value="3">
+        </div>
+      </div>
+    </div>
+    <div class="group">
+      <span class="group-title">Palet</span>
+      <div class="group-row">
+        <div class="control">
+          <label>Mode</label>
+          <select id="mode">
+            <option value="elastic" selected>Élastique</option>
+            <option value="vortex">Tourbillon</option>
+            <option value="paint">Peinture</option>
+            <option value="trail">Traînée</option>
+          </select>
+        </div>
+        <div class="control">
+          <label>Taille <output id="mouseROut">10</output></label>
+          <input type="range" id="mouseR" min="10" max="150" step="5" value="10">
+        </div>
+        <div class="control" id="paintHueControl" hidden>
+          <label>Teinte <output id="paintHueOut">0°</output></label>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <input type="range" id="paintHue" min="0" max="360" step="1" value="0">
+            <span id="paintSwatch" style="width:16px; height:16px; border-radius:4px; flex-shrink:0; background:hsl(0,90%,60%);"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button id="reset">Re-mix</button>
+  </div>
+
+<script>
+"use strict";
+// WebGPU-only engine: the pairwise physics runs in compute shaders and the
+// balls are drawn as instanced quads. Ball state (positions, velocities)
+// lives permanently on the GPU — the CPU only uploads initial state and a
+// small uniform block per frame, so ball count barely touches the CPU.
+
+const canvas = document.getElementById("sim");
+const stage = document.getElementById("stage");
+let W = 0, H = 0;
+
+const MAXN = 20000; // GPU buffer capacity, matches the slider max
+
+// spatial grid: balls only test others in their own neighborhood instead
+// of every other ball. CELL_SIZE sets that neighborhood's scale; MAXCELLS
+// bounds the grid buffers for a worst-case canvas size, and cellSize grows
+// automatically (see computeGrid) if a huge canvas would otherwise need
+// more cells than that.
+const CELL_SIZE = 120;
+const MAXCELLS = 8192;
+const GRID_TARGET_CELLS = 4000;
+
+function computeGrid(w, h) {
+  let cellSize = CELL_SIZE;
+  if ((w / cellSize) * (h / cellSize) > GRID_TARGET_CELLS) {
+    cellSize = Math.sqrt((w * h) / GRID_TARGET_CELLS);
+  }
+  const cols = Math.max(1, Math.floor(w / cellSize));
+  const rows = Math.max(1, Math.floor(h / cellSize));
+  return { cols, rows, cellW: w / cols, cellH: h / rows, numCells: cols * rows };
+}
+
+// interaction reach, shrunk as ball count grows so the average number of
+// neighbors within it — and therefore the cost of the forces pass —
+// stays roughly around TARGET_NEIGHBORS regardless of density. At
+// low/moderate counts the old 220 cap was the actual problem behind
+// balls splitting into several disconnected clusters instead of one:
+// two groups more than ~440px apart could never feel each other at all,
+// so each sorted itself out independently. Capped at 340 now instead —
+// still safely under NEIGH*CELL_SIZE (360, NEIGH bumped 2→3 below to
+// match), which the grid search needs to guarantee it still finds every
+// pair inside the reach.
+const TARGET_NEIGHBORS = 800;
+function computeReach(n, w, h) {
+  const density = n / (w * h);
+  const r = Math.sqrt(TARGET_NEIGHBORS / (Math.PI * Math.max(density, 1e-9)));
+  return Math.min(340, r);
+}
+
+const params = {
+  count: 1000,
+  force: 1.5,
+  friction: 0.005,  // low damping keeps enough jiggle for the packed cluster to sort
+  bounce: 1.0,      // wall restitution; >1 injects energy on each bounce
+  radius: 5,
+  maxSpeed: 3,
+  palette: "rainbow",
+  zoom: 1,          // camera-only: the simulation itself always runs in world space
+  mode: "elastic",  // what holding the mouse button does: elastic | vortex | paint | trail
+  paintHue: 0,
+};
+
+// screen (canvas CSS pixels) → world (simulation) coordinates, inverting
+// the same center-anchored scale the zoom slider applies to the view —
+// keeps the cursor's physics effects lined up with where it looks like
+// it's pointing, at any zoom level
+function screenToWorld(x, y) {
+  const cx = W / 2, cy = H / 2;
+  return { x: (x - cx) / params.zoom + cx, y: (y - cy) / params.zoom + cy };
+}
+
+// mouse acts as a solid disc that shoves balls out of its way — hold the
+// button down to switch it into a "big bang" charger instead: it sucks
+// every ball toward the cursor while held, then releasing fires an
+// outward blast whose strength depends on how long it charged.
+const CHARGE_MAX = 0.35;      // pull strength once fully charged
+const CHARGE_RAMP_MS = 1100;  // hold time to reach full charge
+const EXPLODE_FRAMES = 20;    // blast duration, in frames
+const EXPLODE_SCALE = 6000;   // charge (0..CHARGE_MAX) → blast strength
+
+// "Traînée" mode: dragging drops a short trail of attractors that fade
+// out over TRAIL_LIFETIME_MS, capped at TRAIL_MAX points (matches the
+// fixed-size array on the GPU side, kept small since it's a uniform, not
+// a storage buffer).
+const TRAIL_MAX = 8;
+const TRAIL_LIFETIME_MS = 2200;
+const TRAIL_MIN_DIST = 15;    // world px between recorded points
+const TRAIL_STRENGTH_MAX = 1.5;
+
+const MODE_INDEX = { elastic: 0, vortex: 1, paint: 2, trail: 3 };
+
+const mouse = {
+  x: -1e9, y: -1e9, vx: 0, vy: 0, radius: 10, active: false,
+  charging: false, chargeStart: 0, chargeNow: 0,
+  explodeTimer: 0, explodeStrength0: 0, explodeX: 0, explodeY: 0, explodeNow: 0,
+  trail: [], // { x, y, born } — newest last
+};
+
+canvas.addEventListener("pointermove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const w = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  if (mouse.active) {
+    // cursor velocity, so a fast swipe smacks balls harder
+    mouse.vx = w.x - mouse.x;
+    mouse.vy = w.y - mouse.y;
+  }
+  mouse.x = w.x;
+  mouse.y = w.y;
+  mouse.active = true;
+
+  if (mouse.charging && params.mode === "trail") {
+    const last = mouse.trail[mouse.trail.length - 1];
+    if (!last || Math.hypot(w.x - last.x, w.y - last.y) >= TRAIL_MIN_DIST) {
+      if (mouse.trail.length >= TRAIL_MAX) mouse.trail.shift();
+      mouse.trail.push({ x: w.x, y: w.y, born: performance.now() });
+    }
+  }
+});
+canvas.addEventListener("pointerleave", () => {
+  mouse.active = false;
+  mouse.x = -1e9;
+  mouse.y = -1e9;
+  mouse.vx = 0;
+  mouse.vy = 0;
+});
+canvas.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const w = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  mouse.x = w.x;
+  mouse.y = w.y;
+  mouse.active = true;
+  mouse.charging = true;
+  mouse.chargeStart = performance.now();
+  if (params.mode === "trail") {
+    mouse.trail.push({ x: mouse.x, y: mouse.y, born: performance.now() });
+  }
+});
+// listen on window, not the canvas, so releasing off-canvas still fires
+// the blast instead of leaving the charge stuck
+window.addEventListener("pointerup", () => {
+  // the "big bang" release is specific to Élastique mode — the other
+  // modes just stop doing whatever they were doing while held
+  if (mouse.charging && params.mode === "elastic") {
+    mouse.explodeStrength0 = mouse.chargeNow * EXPLODE_SCALE;
+    mouse.explodeX = mouse.x;
+    mouse.explodeY = mouse.y;
+    mouse.explodeTimer = EXPLODE_FRAMES;
+  }
+  mouse.charging = false;
+});
+
+/* ------------------------------ palettes ------------------------------ */
+// each palette maps ball index → hue (+ saturation/lightness treatment);
+// a gentle lightness wobble gives varied tones within nearby hues, and
+// the hue is what the attraction physics sorts on.
+// Themed palettes are multi-stop gradients interpolated in HSL: hue,
+// saturation and lightness all drift along the ramp, so every ball keeps
+// a unique tone instead of the palette reading as a handful of colors.
+// Stops use unwrapped hue degrees (may exceed 360) so interpolation
+// never takes the short way around the wheel.
+const GRADIENTS = {
+  // deep violet → magenta → crimson → orange → gold
+  sunset: [[265,85,30],[320,92,44],[352,95,52],[375,95,56],[395,95,63],[412,90,71]],
+  // abyssal navy → azure → teal → turquoise → pale seafoam
+  ocean:  [[228,85,26],[208,88,38],[192,92,46],[178,88,53],[165,80,61],[155,62,73]],
+  // burgundy → red → ember orange → amber → gold → warm cream
+  warm:   [[343,85,32],[358,92,45],[372,95,52],[388,95,57],[402,92,64],[413,85,75]],
+  // soft lavender → indigo → cobalt → sky → cyan → glacial ice
+  cold:   [[278,62,58],[252,76,55],[226,88,52],[206,92,58],[190,88,65],[181,68,79]],
+};
+
+function gradientColor(stops, t, wob) {
+  const x = t * (stops.length - 1);
+  const k = Math.min(Math.floor(x), stops.length - 2);
+  const f = x - k;
+  const a = stops[k], b = stops[k + 1];
+  return {
+    hue: (a[0] + (b[0] - a[0]) * f) % 360,
+    sat: a[1] + (b[1] - a[1]) * f + wob * 3,
+    light: a[2] + (b[2] - a[2]) * f + wob * 4,
+  };
+}
+
+function ballColor(i, n) {
+  const t = i / n;
+  const wob = Math.sin(t * Math.PI * 12); // -1..1, cycles along the palette
+  const stops = GRADIENTS[params.palette];
+  if (stops) return gradientColor(stops, t, wob);
+  switch (params.palette) {
+    case "neon":   return { hue: t * 360, sat: 100, light: 56 + wob * 8 };
+    case "pastel": return { hue: t * 360, sat: 65,  light: 76 + wob * 6 };
+    case "jewel":  return { hue: t * 360, sat: 85,  light: 40 + wob * 9 };
+    default:       return { hue: t * 360, sat: 90,  light: 60 };
+  }
+}
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r, g, b;
+  if (h < 60) { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  return [r + m, g + m, b + m];
+}
+
+/* ----------------------------- ball state ----------------------------- */
+// flat typed arrays, uploaded to the GPU whenever the set of balls changes
+const posA = new Float32Array(MAXN * 2);
+const velA = new Float32Array(MAXN * 2);
+const hueA = new Float32Array(MAXN);
+const colA = new Float32Array(MAXN * 4);
+
+function makeBalls(n) {
+  params.count = n;
+
+  // hue is assigned by index (t = i/n), so without shuffling, draw order
+  // (also by index — the render pass has no depth buffer, later instances
+  // just paint over earlier ones) would exactly track hue. Red sits at
+  // both ends of that gradient (0° and ~360°), so the last balls drawn
+  // are always red and paint over every other color wherever the sim
+  // packs balls together — invisible while balls stay spread out, but
+  // total red-out the moment they condense into a dense cluster. Shuffle
+  // which index gets which hue so draw order no longer correlates with
+  // color at all.
+  const colors = [];
+  for (let i = 0; i < n; i++) colors.push(ballColor(i, n));
+  for (let i = colors.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [colors[i], colors[j]] = [colors[j], colors[i]];
+  }
+
+  for (let i = 0; i < n; i++) {
+    posA[i * 2] = params.radius + Math.random() * (W - 2 * params.radius);
+    posA[i * 2 + 1] = params.radius + Math.random() * (H - 2 * params.radius);
+    velA[i * 2] = 0;
+    velA[i * 2 + 1] = 0;
+    const { hue, sat, light } = colors[i];
+    hueA[i] = hue;
+    const [r, g, b] = hslToRgb(hue, sat, light);
+    colA[i * 4] = r; colA[i * 4 + 1] = g; colA[i * 4 + 2] = b; colA[i * 4 + 3] = 1;
+  }
+  if (gpu) gpu.upload();
+}
+
+/* ------------------------------ shaders ------------------------------- */
+
+const WGSL_SIM = /* wgsl */`
+struct Params {
+  size: vec2f,
+  g: f32,
+  friction: f32,
+  bounce: f32,
+  maxSpeed: f32,
+  radius: f32,
+  count: f32,
+  mouse: vec4f,      // x, y, vx, vy
+  mouseR: f32,
+  mouseActive: f32,
+  dragK: f32,         // quadratic (Newton) drag coefficient
+  _p1: f32,
+  grid: vec4f,        // cols, rows, cellW, cellH
+  interact: vec4f,    // explodeX, explodeY, explodeStrength, chargeStrength (Élastique mode)
+  _p2: f32,           // unused here — keeps offsets aligned with the draw shader's zoom field
+  reachSq: f32,       // squared interaction cutoff, shrunk as ball count grows (see computeReach)
+  time: f32,          // seconds, free-running — feeds the jitter noise in integrate()
+  _p5: f32,           // padding up to the next vec4 boundary
+  mode2: vec4f,       // modeIndex (0=elastic,1=vortex,2=paint,3=trail), paintHue, holding, _unused
+  trail: array<vec4f, 8>, // x, y, strength, _unused — per "Traînée" point
+};
+@group(0) @binding(0) var<uniform> p: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec2f>;
+@group(0) @binding(2) var<storage, read_write> vel: array<vec2f>;
+@group(0) @binding(3) var<storage, read> hue: array<f32>;
+@group(0) @binding(4) var<storage, read_write> counts: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> cellId: array<u32>;
+@group(0) @binding(6) var<storage, read_write> offsets: array<u32>;
+@group(0) @binding(7) var<storage, read_write> sortedIdx: array<u32>;
+
+const PI = 3.14159265;
+const NEIGH: i32 = 3; // search a 7x7 block of cells around each ball
+// how much of an overlap collide() resolves per frame. Lower isn't
+// actually what fixes jamming (see the noise term in integrate() for
+// that) — it just trades visible overlap for mobility, and too much
+// overlap is its own quality problem at high density, so this stays
+// close to fully rigid. Kept under 1.0 for a little headroom against
+// overshoot: with many simultaneous contacts, a full-strength parallel
+// correction can overshoot into a *new* overlap on the other side and
+// end up oscillating in place rather than actually settling.
+const STIFFNESS: f32 = 0.7;
+// p.reachSq is a circular cutoff on top of that search: the 7x7 block's
+// corners reach ~1.4x farther than its edges (a square isn't rotationally
+// symmetric), which biases the force field along the grid's own
+// axes/diagonals once density is high enough for it to show. It's also
+// shrunk as ball count grows (see computeReach in JS) so the average
+// neighbor count — and therefore the cost of this pass — stays roughly
+// bounded instead of growing with density on top of growing with n.
+
+// circular hue affinity: 1 for identical hues → 0 at 180° apart, ^4 so
+// attraction is sharply selective (attraction-only setups collapse into
+// one blob without this)
+fn affinity(a: f32, b: f32) -> f32 {
+  var d = abs(a - b) % 360.0;
+  if (d > 180.0) { d = 360.0 - d; }
+  let c = cos(d / 180.0 * PI) * 0.5 + 0.5;
+  let c2 = c * c;
+  return c2 * c2;
+}
+
+fn cellCoord(position: vec2f) -> vec2i {
+  let cx = i32(clamp(floor(position.x / p.grid.z), 0.0, p.grid.x - 1.0));
+  let cy = i32(clamp(floor(position.y / p.grid.w), 0.0, p.grid.y - 1.0));
+  return vec2i(cx, cy);
+}
+
+/* --- spatial grid build: counting sort of ball indices into cells ------
+   (histogram -> prefix sum -> scatter), rebuilt fresh every frame since
+   balls move each step. forces() below walks this instead of all n balls. */
+
+@compute @workgroup_size(256)
+fn clearCounts(@builtin(global_invocation_id) gid: vec3u) {
+  let numCells = u32(p.grid.x) * u32(p.grid.y);
+  if (gid.x >= numCells) { return; }
+  atomicStore(&counts[gid.x], 0u);
+}
+
+@compute @workgroup_size(256)
+fn countCells(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  let cc = cellCoord(pos[i]);
+  let c = u32(cc.y) * u32(p.grid.x) + u32(cc.x);
+  cellId[i] = c;
+  atomicAdd(&counts[c], 1u);
+}
+
+// single-thread exclusive scan: at a few thousand cells this is microseconds
+// on GPU, far cheaper than the bookkeeping a parallel scan would need here
+@compute @workgroup_size(1)
+fn prefixSum() {
+  let numCells = u32(p.grid.x) * u32(p.grid.y);
+  var running = 0u;
+  for (var c = 0u; c < numCells; c++) {
+    let cnt = atomicLoad(&counts[c]);
+    offsets[c] = running;
+    running += cnt;
+    atomicStore(&counts[c], offsets[c]); // repurpose as the scatter cursor
+  }
+  offsets[numCells] = running;
+}
+
+@compute @workgroup_size(256)
+fn scatter(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  let c = cellId[i];
+  let slot = atomicAdd(&counts[c], 1u);
+  sortedIdx[slot] = i;
+}
+
+/* --- physics: each ball only tests balls in its own 7x7 cell neighborhood
+   instead of every other ball. This caps interaction reach at roughly
+   NEIGH*cellSize px instead of the whole canvas — negligible for the
+   force itself (1/d falloff already makes distant pairs weak) but it does
+   mean two same-hue balls on opposite sides of a big canvas no longer
+   pull on each other until they're already reasonably close. */
+
+@compute @workgroup_size(256)
+fn forces(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  let myPos = pos[i];
+  let myHue = hue[i];
+  var acc = vec2f(0.0);
+  let cc = cellCoord(myPos);
+  let cols = i32(p.grid.x);
+  let rows = i32(p.grid.y);
+
+  for (var oy = -NEIGH; oy <= NEIGH; oy++) {
+    let ny = cc.y + oy;
+    if (ny < 0 || ny >= rows) { continue; }
+    for (var ox = -NEIGH; ox <= NEIGH; ox++) {
+      let nx = cc.x + ox;
+      if (nx < 0 || nx >= cols) { continue; }
+      let c = u32(ny * cols + nx);
+      let start = offsets[c];
+      let end = offsets[c + 1u];
+      for (var s = start; s < end; s++) {
+        let j = sortedIdx[s];
+        if (j == i) { continue; }
+        let dxy = pos[j] - myPos;
+        let d2 = max(dot(dxy, dxy), 0.000001);
+        if (d2 > p.reachSq) { continue; } // circular, density-adaptive cutoff
+        // inverseSqrt gives both distance and direction from one op
+        // instead of a sqrt followed by a per-component divide
+        let invD = inverseSqrt(d2);
+        let d = d2 * invD;
+        let dir = dxy * invD;
+        let aff = affinity(myHue, hue[j]);
+        // color-weighted gravity, 1/d falloff; +20 softening avoids the
+        // singularity at tiny distances. Collision/overlap is no longer
+        // handled here — see collide() below, which runs every frame
+        // (this pass doesn't, at high density) and hard-corrects position
+        // directly instead of nudging velocity, so balls truly never
+        // settle into the same spot regardless of how hard they're pulled.
+        acc += dir * ((p.g * aff) / (d + 20.0));
+      }
+    }
+  }
+  vel[i] += acc;
+}
+
+/* --- collide(): a hard, non-negotiable "never overlap" pass. Unlike
+   forces() above, this always runs at full 60fps (even on frames that
+   skip the attraction recompute) and corrects position directly instead
+   of nudging velocity — a velocity nudge gets damped by drag before it
+   ever moves anything, which is exactly how balls used to visibly settle
+   on top of each other under strong enough attraction. Each ball moves
+   itself half the overlap depth away from every ball it's touching; the
+   other ball does the same from its own invocation, so the pair ends up
+   exactly collideDist apart. Parallel invocations may occasionally read
+   a neighbor's position just before or after that neighbor's own
+   correction lands (WebGPU gives no ordering guarantee between different
+   invocations in one dispatch) — a Jacobi-style approximation standard
+   in real-time position-based collision solvers. It's harmless here:
+   worst case is a slightly under- or over-corrected pair for one frame,
+   and this pass re-runs every frame, so it self-heals immediately. */
+
+@compute @workgroup_size(256)
+fn collide(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  let myPos = pos[i];
+  let myHue = hue[i];
+  // same floor as before: shrinking the ball size can't shrink the
+  // collision zone below the typical per-frame travel distance, or balls
+  // can hop past each other between frames without ever registering
+  // as touching ("tunneling")
+  let collideDist = max(p.radius * 2.2, 11.0);
+  // differential adhesion: dissimilar-hue neighbors keep up to 3x the
+  // normal spacing, same-hue ones can pack at the base distance. Without
+  // this, collision has no opinion about color at all, so balls just
+  // condense into one uniformly-mixed blob — attraction alone pulls
+  // everything together, but nothing was pushing wrong-colored neighbors
+  // apart to actually let sorting happen. maxCollideDist is only a coarse
+  // cull bound (worst case, fully dissimilar) before the exact per-pair
+  // distance is computed below.
+  let maxCollideDist = collideDist * 3.0;
+  let maxCollideDist2 = maxCollideDist * maxCollideDist;
+  let cc = cellCoord(myPos);
+  let cols = i32(p.grid.x);
+  let rows = i32(p.grid.y);
+  var correction = vec2f(0.0);
+  var contacts = 0.0;
+
+  for (var oy = -NEIGH; oy <= NEIGH; oy++) {
+    let ny = cc.y + oy;
+    if (ny < 0 || ny >= rows) { continue; }
+    for (var ox = -NEIGH; ox <= NEIGH; ox++) {
+      let nx = cc.x + ox;
+      if (nx < 0 || nx >= cols) { continue; }
+      let c = u32(ny * cols + nx);
+      let start = offsets[c];
+      let end = offsets[c + 1u];
+      for (var s = start; s < end; s++) {
+        let j = sortedIdx[s];
+        if (j == i) { continue; }
+        let dxy = myPos - pos[j];
+        let d2 = dot(dxy, dxy);
+        if (d2 >= maxCollideDist2) { continue; }
+        let aff = affinity(myHue, hue[j]);
+        let effDist = collideDist * (1.0 + 2.0 * (1.0 - aff));
+        if (d2 >= effDist * effDist) { continue; }
+        var d = sqrt(d2);
+        var dir: vec2f;
+        if (d < 0.01) {
+          // exactly (or almost) coincident: there's no direction to take
+          // from the (near-)zero vector, so break the tie with a hash of
+          // the pair's indices — deterministic, so it doesn't flicker,
+          // but different for every pair, so they don't all shove the
+          // same way
+          let seed = f32(i) * 12.9898 + f32(j) * 78.233;
+          let a = fract(sin(seed) * 43758.5453) * 6.2831853;
+          dir = vec2f(cos(a), sin(a));
+          d = 0.01;
+        } else {
+          dir = dxy / d;
+        }
+        correction += dir * ((effDist - d) * 0.5 * STIFFNESS);
+        contacts += 1.0;
+      }
+    }
+  }
+  // position-only correction. Earlier versions of this pass also touched
+  // velocity (cancelling or bouncing whatever pointed back into a
+  // neighbor) to try to stop packed balls from grinding to a halt — that
+  // whole direction was a mistake: it meant attraction pulling a ball
+  // toward a neighbor and this pass reacting to first contact fought
+  // each other every single frame, so two balls locked solid the moment
+  // they touched instead of settling naturally. Position correction
+  // alone lets a ball keep whatever velocity attraction/drag gave it —
+  // it slides along a contact instead of being stopped dead by it. The
+  // jitter in integrate() is what handles a ball that's truly gone
+  // static (all forces cancelling), which is a much rarer case than
+  // "touching a neighbor" and doesn't need this pass to fight physics
+  // to prevent it.
+  if (contacts > 0.0) {
+    pos[i] = myPos + correction / contacts;
+  }
+}
+
+@compute @workgroup_size(256)
+fn integrate(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  var v = vel[i];
+  var x = pos[i];
+  let reach = p.mouseR + p.radius;
+  let mode = p.mode2.x;         // 0=Élastique, 1=Tourbillon, 2=Peinture, 3=Traînée
+  let holding = p.mode2.z > 0.5; // is the button currently down, in any mode
+
+  // jitter, but ONLY for a ball that has essentially already stopped: a
+  // ball boxed in symmetrically by neighbors on all sides can end up
+  // with an exactly-cancelling net force and simply never move again —
+  // the real cause of clusters that lock into a "paste" no push can
+  // undo. Applying this unconditionally to every ball every frame (the
+  // first version of this) was wrong — it read as constant ambient
+  // boiling across the whole simulation instead of a rare, targeted
+  // unstick. Gating it on speed means a ball that's actually moving is
+  // never touched at all; only one that's truly gone static gets nudged.
+  if (length(v) < 0.05) {
+    let seed = f32(i) * 0.017 + p.time;
+    let jitterA = fract(sin(seed) * 43758.5453) * 6.2831853;
+    v += vec2f(cos(jitterA), sin(jitterA)) * 0.02;
+  }
+
+  // normal hover behavior: a solid disc that shoves balls out of its way,
+  // plus swipe momentum. Suspended while the button is held (each mode
+  // below takes over instead) so the disc doesn't fight it.
+  if (p.mouseActive > 0.5 && !holding) {
+    let dxy = x - p.mouse.xy;
+    let d = length(dxy);
+    if (d < reach) {
+      let nrm = dxy / max(d, 0.001);
+      let overlap = (reach - d) / reach;
+      // stronger than before — a jammed cluster needs a real shove to
+      // break loose, not just a nudge that the pack's own contacts
+      // (and quadratic drag) absorb before anything visibly moves
+      v += nrm * overlap * 3.5 + p.mouse.zw * 0.3;
+    }
+  }
+
+  // Élastique: a black-hole pull toward the cursor, growing the longer
+  // the button is held, ignoring hue — gathers balls from anywhere on
+  // screen instead of the normal short-range, color-selective attraction
+  if (mode < 0.5 && holding) {
+    let dxy = p.mouse.xy - x;
+    let d = max(length(dxy), 1.0);
+    v += (dxy / d) * p.interact.w;
+  }
+
+  // Tourbillon: a swirl around the cursor — tangential force spins balls
+  // into orbit, plus a gentle inward pull so they don't just fling away
+  if (mode > 0.5 && mode < 1.5 && holding) {
+    let dxy = x - p.mouse.xy;
+    let d = max(length(dxy), 1.0);
+    let vortexReach = p.mouseR * 4.0;
+    if (d < vortexReach) {
+      let falloff = 1.0 - d / vortexReach;
+      let tangent = vec2f(-dxy.y, dxy.x) / d;
+      v += tangent * 0.5 * falloff;
+      v -= (dxy / d) * 0.08 * falloff;
+    }
+  }
+
+  // Peinture: attracts only balls whose hue is close to the chosen paint
+  // hue, same affinity curve as the ball-to-ball color attraction — lets
+  // you pull one color out of a mixed cluster
+  if (mode > 1.5 && mode < 2.5 && holding) {
+    let dxy = p.mouse.xy - x;
+    let d = max(length(dxy), 1.0);
+    let paintReach = p.mouseR * 6.0;
+    if (d < paintReach) {
+      let falloff = 1.0 - d / paintReach;
+      let paintAff = affinity(hue[i], p.mode2.y);
+      v += (dxy / d) * 0.4 * paintAff * falloff;
+    }
+  }
+
+  // the "big bang" (Élastique only): a decaying outward blast from the
+  // release point, stronger for balls caught close to its center. No
+  // speed cap to fight here anymore — the drag below slows it on its own.
+  if (p.interact.z > 0.001) {
+    let dxy = x - p.interact.xy;
+    let d = max(length(dxy), 8.0);
+    v += (dxy / d) * (p.interact.z / d);
+  }
+
+  // Traînée: every live trail point tugs on every ball a little, fading
+  // out over its lifetime — lets you "draw" a path balls stream along.
+  // Independent of "holding" so the trail keeps working after release.
+  if (mode > 2.5) {
+    for (var t = 0u; t < 8u; t++) {
+      let pt = p.trail[t];
+      if (pt.z <= 0.001) { continue; }
+      let dxy = pt.xy - x;
+      let d = max(length(dxy), 1.0);
+      v += (dxy / d) * pt.z / (d * 0.05 + 1.0);
+    }
+  }
+
+  // drag combines two real regimes, like an actual fluid: Stokes drag
+  // (viscous, linear in v — dominant at low speed) and Newton drag (form
+  // drag, quadratic in v — dominant at high speed, since pushing through a
+  // fluid costs more the faster you go). The quadratic term is what gives
+  // a *natural* terminal velocity in place of an arbitrary hard clamp —
+  // it also means a "big bang" blast decelerates itself organically
+  // instead of needing a temporary clamp override.
+  v *= (1.0 - p.friction);
+  let sp = length(v);
+  if (sp > 0.0001) {
+    let quadDrag = min(p.dragK * sp * sp, sp); // never overshoots into reverse
+    v -= (v / sp) * quadDrag;
+  }
+  x += v;
+
+  // hard constraint: the disc is solid, project any ball that ended up
+  // inside back onto its edge and cancel inward velocity (only when the
+  // button isn't held — while held, each mode above wants balls to move
+  // freely through the disc, e.g. piling up at the center in Élastique)
+  if (p.mouseActive > 0.5 && !holding) {
+    let dxy = x - p.mouse.xy;
+    let d = length(dxy);
+    if (d < reach) {
+      let nrm = dxy / max(d, 0.001);
+      x = p.mouse.xy + nrm * reach;
+      let vn = dot(v, nrm);
+      if (vn < 0.0) { v -= nrm * vn; }
+    }
+  }
+
+  // bounce off walls
+  if (x.x < p.radius) { x.x = p.radius; v.x *= -p.bounce; }
+  if (x.x > p.size.x - p.radius) { x.x = p.size.x - p.radius; v.x *= -p.bounce; }
+  if (x.y < p.radius) { x.y = p.radius; v.y *= -p.bounce; }
+  if (x.y > p.size.y - p.radius) { x.y = p.size.y - p.radius; v.y *= -p.bounce; }
+
+  pos[i] = x;
+  vel[i] = v;
+}
+`;
+
+const WGSL_DRAW = /* wgsl */`
+struct Params {
+  size: vec2f,
+  g: f32,
+  friction: f32,
+  bounce: f32,
+  maxSpeed: f32,
+  radius: f32,
+  count: f32,
+  mouse: vec4f,
+  mouseR: f32,
+  mouseActive: f32,
+  _p0: f32,
+  _p1: f32,
+  grid: vec4f,
+  interact: vec4f,    // explodeX, explodeY, explodeStrength, chargeStrength
+  zoom: f32,          // camera zoom, anchored on the canvas center
+};
+@group(0) @binding(0) var<uniform> p: Params;
+@group(0) @binding(1) var<storage, read> pos: array<vec2f>;
+@group(0) @binding(2) var<storage, read> col: array<vec4f>;
+
+fn clipPos(world: vec2f) -> vec4f {
+  let center = p.size * 0.5;
+  let scaled = (world - center) * p.zoom + center;
+  return vec4f(scaled.x / p.size.x * 2.0 - 1.0, 1.0 - scaled.y / p.size.y * 2.0, 0.0, 1.0);
+}
+
+// a local offset (e.g. a quad corner) scales with zoom too, but unlike a
+// world position it isn't anchored to the canvas center
+fn clipDelta(delta: vec2f) -> vec4f {
+  let scaled = delta * p.zoom;
+  return vec4f(scaled.x / p.size.x * 2.0, -scaled.y / p.size.y * 2.0, 0.0, 0.0);
+}
+
+fn quadCorner(vi: u32) -> vec2f {
+  var q = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+  );
+  return q[vi];
+}
+
+struct BallOut {
+  @builtin(position) posn: vec4f,
+  @location(0) uv: vec2f,     // offset from ball center, px
+  @location(1) color: vec4f,
+};
+
+@vertex fn vsBall(@builtin(vertex_index) vi: u32,
+                  @builtin(instance_index) ii: u32) -> BallOut {
+  let corner = quadCorner(vi) * (p.radius + 1.0); // 1px pad for the soft edge, world px
+  var out: BallOut;
+  out.posn = clipPos(pos[ii]) + clipDelta(corner);
+  out.uv = corner; // stays in world px — fragment math below is zoom-agnostic
+  out.color = col[ii];
+  return out;
+}
+
+@fragment fn fsBall(in: BallOut) -> @location(0) vec4f {
+  let d = length(in.uv);
+  let a = clamp(p.radius + 0.5 - d, 0.0, 1.0); // 1px antialiased rim
+  return vec4f(in.color.rgb * a, a);            // premultiplied
+}
+
+struct RingOut {
+  @builtin(position) posn: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex fn vsRing(@builtin(vertex_index) vi: u32) -> RingOut {
+  // grows with charge, so the ring visibly swells as the "big bang" builds
+  let r = p.mouseR + 3.0 + p.interact.w * 60.0;
+  let corner = quadCorner(vi) * r;
+  var out: RingOut;
+  out.posn = clipPos(p.mouse.xy) + clipDelta(corner);
+  out.uv = corner;
+  return out;
+}
+
+@fragment fn fsRing(in: RingOut) -> @location(0) vec4f {
+  // 1.5px-wide white circle at the disc radius, swelling with charge
+  let r = p.mouseR + p.interact.w * 60.0;
+  let d = length(in.uv);
+  let a = clamp(1.25 - abs(d - r), 0.0, 1.0) * 0.7;
+  return vec4f(a, a, a, a); // premultiplied white
+}
+`;
+
+const WGSL_POST = /* wgsl */`
+// fade quad (trail effect) + blit of the scene texture to the canvas
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var tex: texture_2d<f32>;
+
+struct VSOut {
+  @builtin(position) posn: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex fn vsFull(@builtin(vertex_index) vi: u32) -> VSOut {
+  var xy = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var out: VSOut;
+  out.posn = vec4f(xy[vi], 0.0, 1.0);
+  out.uv = vec2f(xy[vi].x * 0.5 + 0.5, 0.5 - xy[vi].y * 0.5);
+  return out;
+}
+
+@fragment fn fsFade() -> @location(0) vec4f {
+  // same trail fade as before: bg color at 0.35 alpha, premultiplied
+  return vec4f(0.035 * 0.35, 0.039 * 0.35, 0.055 * 0.35, 0.35);
+}
+
+@fragment fn fsBlit(in: VSOut) -> @location(0) vec4f {
+  return textureSample(tex, samp, in.uv);
+}
+`;
+
+/* ----------------------------- GPU engine ----------------------------- */
+
+let gpu = null;
+
+async function initGPU() {
+  const adapter = navigator.gpu && await navigator.gpu.requestAdapter();
+  if (!adapter) throw new Error("WebGPU unavailable");
+  const device = await adapter.requestDevice();
+  const context = canvas.getContext("webgpu");
+  const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format: canvasFormat, alphaMode: "opaque" });
+  const q = device.queue;
+
+  const uniBuf = device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const posBuf = device.createBuffer({ size: posA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const velBuf = device.createBuffer({ size: velA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const hueBuf = device.createBuffer({ size: hueA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const colBuf = device.createBuffer({ size: colA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+
+  // spatial grid scratch buffers — fully rebuilt by the GPU every frame,
+  // never touched from the CPU
+  const cellIdBuf = device.createBuffer({ size: MAXN * 4, usage: GPUBufferUsage.STORAGE });
+  const countsBuf = device.createBuffer({ size: MAXCELLS * 4, usage: GPUBufferUsage.STORAGE });
+  const offsetsBuf = device.createBuffer({ size: (MAXCELLS + 1) * 4, usage: GPUBufferUsage.STORAGE });
+  const sortedIdxBuf = device.createBuffer({ size: MAXN * 4, usage: GPUBufferUsage.STORAGE });
+
+  const simMod = device.createShaderModule({ code: WGSL_SIM });
+  const drawMod = device.createShaderModule({ code: WGSL_DRAW });
+  const postMod = device.createShaderModule({ code: WGSL_POST });
+
+  // one shared layout for every sim pass (grid build + forces + integrate):
+  // each pass only touches the bindings it needs, but "auto" layouts would
+  // reject bindings an entry point doesn't reference, so this is explicit
+  const simBGL = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    ],
+  });
+  const simLayout = device.createPipelineLayout({ bindGroupLayouts: [simBGL] });
+  const mkPipe = (entryPoint) => device.createComputePipeline({ layout: simLayout, compute: { module: simMod, entryPoint } });
+  const clearCountsPipe = mkPipe("clearCounts");
+  const countCellsPipe = mkPipe("countCells");
+  const prefixSumPipe = mkPipe("prefixSum");
+  const scatterPipe = mkPipe("scatter");
+  const forcesPipe = mkPipe("forces");
+  const collidePipe = mkPipe("collide");
+  const integratePipe = mkPipe("integrate");
+
+  const simBind = device.createBindGroup({
+    layout: simBGL,
+    entries: [
+      { binding: 0, resource: { buffer: uniBuf } },
+      { binding: 1, resource: { buffer: posBuf } },
+      { binding: 2, resource: { buffer: velBuf } },
+      { binding: 3, resource: { buffer: hueBuf } },
+      { binding: 4, resource: { buffer: countsBuf } },
+      { binding: 5, resource: { buffer: cellIdBuf } },
+      { binding: 6, resource: { buffer: offsetsBuf } },
+      { binding: 7, resource: { buffer: sortedIdxBuf } },
+    ],
+  });
+
+  const SCENE_FORMAT = "rgba8unorm";
+  const PREMUL = {
+    color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+  };
+  const ballPipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: drawMod, entryPoint: "vsBall" },
+    fragment: { module: drawMod, entryPoint: "fsBall", targets: [{ format: SCENE_FORMAT, blend: PREMUL }] },
+  });
+  const ringPipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: drawMod, entryPoint: "vsRing" },
+    fragment: { module: drawMod, entryPoint: "fsRing", targets: [{ format: SCENE_FORMAT, blend: PREMUL }] },
+  });
+  const fadePipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: postMod, entryPoint: "vsFull" },
+    fragment: { module: postMod, entryPoint: "fsFade", targets: [{ format: SCENE_FORMAT, blend: PREMUL }] },
+  });
+  const blitPipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: postMod, entryPoint: "vsFull" },
+    fragment: { module: postMod, entryPoint: "fsBlit", targets: [{ format: canvasFormat }] },
+  });
+
+  const ballBind = device.createBindGroup({
+    layout: ballPipe.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: uniBuf } },
+      { binding: 1, resource: { buffer: posBuf } },
+      { binding: 2, resource: { buffer: colBuf } },
+    ],
+  });
+  const ringBind = device.createBindGroup({
+    layout: ringPipe.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: uniBuf } }],
+  });
+  const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+
+  // trails live in an offscreen texture that is faded, not cleared,
+  // each frame (the swapchain texture can't be relied on to persist)
+  let sceneView = null, blitBind = null, freshScene = true;
+  function makeScene() {
+    const tex = device.createTexture({
+      size: [Math.max(W, 1), Math.max(H, 1)],
+      format: SCENE_FORMAT,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    sceneView = tex.createView();
+    blitBind = device.createBindGroup({
+      layout: blitPipe.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: sampler },
+        { binding: 1, resource: sceneView },
+      ],
+    });
+    freshScene = true;
+  }
+  makeScene();
+
+  const uniData = new Float32Array(64);   // full Params struct, incl. the
+                                           // 8-slot trail array at the end
+  const trailFloats = new Float32Array(TRAIL_MAX * 4);
+
+  return {
+    upload() {
+      const n = params.count;
+      q.writeBuffer(posBuf, 0, posA, 0, n * 2);
+      q.writeBuffer(velBuf, 0, velA, 0, n * 2);
+      q.writeBuffer(hueBuf, 0, hueA, 0, n);
+      q.writeBuffer(colBuf, 0, colA, 0, n * 4);
+    },
+
+    resize() { makeScene(); },
+
+    frame() {
+      const n = params.count;
+      const grid = computeGrid(W, H);
+      const reach = computeReach(n, W, H);
+      // quadratic (Newton) drag coefficient: derived from the Vitesse
+      // slider so it keeps the same meaning (higher = faster cruising
+      // speed) while now shaping a real drag curve instead of a hard clamp
+      const dragK = 0.15 / (params.maxSpeed * params.maxSpeed);
+
+      // pack up to 8 trail points as [x, y, strength, 0], strength fading
+      // linearly to 0 over TRAIL_LIFETIME_MS; empty slots stay all-zero
+      // (strength 0 makes the shader skip them immediately)
+      const now = performance.now();
+      trailFloats.fill(0);
+      for (let t = 0; t < mouse.trail.length; t++) {
+        const pt = mouse.trail[t];
+        const strength = TRAIL_STRENGTH_MAX * Math.max(0, 1 - (now - pt.born) / TRAIL_LIFETIME_MS);
+        trailFloats[t * 4] = pt.x;
+        trailFloats[t * 4 + 1] = pt.y;
+        trailFloats[t * 4 + 2] = strength;
+      }
+
+      uniData.set([
+        W, H,
+        params.force * 0.06, params.friction,
+        params.bounce, params.maxSpeed,
+        params.radius, n,
+        mouse.x, mouse.y, mouse.vx, mouse.vy,
+        mouse.radius, mouse.active ? 1 : 0, dragK, 0,
+        grid.cols, grid.rows, grid.cellW, grid.cellH,
+        mouse.explodeX, mouse.explodeY, mouse.explodeNow, mouse.chargeNow,
+        params.zoom, reach * reach, performance.now() * 0.001, 0,
+        MODE_INDEX[params.mode], params.paintHue, mouse.charging ? 1 : 0, 0,
+        ...trailFloats,
+      ]);
+      q.writeBuffer(uniBuf, 0, uniData);
+
+      const enc = device.createCommandEncoder();
+      const nGroups = Math.ceil(n / 256);
+      const cellGroups = Math.ceil(grid.numCells / 256);
+
+      const cp = enc.beginComputePass();
+      cp.setBindGroup(0, simBind);
+      cp.setPipeline(clearCountsPipe); cp.dispatchWorkgroups(cellGroups);
+      cp.setPipeline(countCellsPipe); cp.dispatchWorkgroups(nGroups);
+      cp.setPipeline(prefixSumPipe); cp.dispatchWorkgroups(1);
+      cp.setPipeline(scatterPipe); cp.dispatchWorkgroups(nGroups);
+      cp.setPipeline(forcesPipe); cp.dispatchWorkgroups(nGroups);
+      cp.setPipeline(collidePipe); cp.dispatchWorkgroups(nGroups);
+      cp.setPipeline(integratePipe); cp.dispatchWorkgroups(nGroups);
+      cp.end();
+
+      const scene = enc.beginRenderPass({
+        colorAttachments: [{
+          view: sceneView,
+          loadOp: freshScene ? "clear" : "load",
+          clearValue: { r: 0.035, g: 0.039, b: 0.055, a: 1 },
+          storeOp: "store",
+        }],
+      });
+      freshScene = false;
+      // fadePipe uses no bindings — and the scene texture must NOT be bound
+      // here, since it's this pass's render attachment
+      scene.setPipeline(fadePipe); scene.draw(3);
+      scene.setPipeline(ballPipe); scene.setBindGroup(0, ballBind); scene.draw(6, n);
+      if (mouse.active) {
+        scene.setPipeline(ringPipe); scene.setBindGroup(0, ringBind); scene.draw(6);
+      }
+      scene.end();
+
+      const blit = enc.beginRenderPass({
+        colorAttachments: [{
+          view: context.getCurrentTexture().createView(),
+          loadOp: "clear",
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          storeOp: "store",
+        }],
+      });
+      blit.setPipeline(blitPipe); blit.setBindGroup(0, blitBind); blit.draw(3);
+      blit.end();
+
+      q.submit([enc.finish()]);
+    },
+  };
+}
+
+/* ------------------------------ main loop ----------------------------- */
+
+// balls can only be placed once the stage actually has a size — at load
+// the tab may still be hidden or unlaid-out, with clientWidth/Height at 0
+let placed = false;
+
+function resize() {
+  W = canvas.width = Math.max(1, stage.clientWidth);
+  H = canvas.height = Math.max(1, stage.clientHeight);
+  if (!placed && stage.clientWidth > 0 && stage.clientHeight > 0) {
+    placed = true;
+    makeBalls(params.count);
+  }
+  // out-of-bounds balls are pulled back by the wall clamp in the shader
+  if (gpu) gpu.resize();
+}
+new ResizeObserver(resize).observe(stage);
+
+function frame() {
+  // charge ramps up while the button is held, and resets once released
+  mouse.chargeNow = mouse.charging
+    ? Math.min(1, (performance.now() - mouse.chargeStart) / CHARGE_RAMP_MS) * CHARGE_MAX
+    : 0;
+  // the blast fades linearly over EXPLODE_FRAMES, then goes fully silent
+  if (mouse.explodeTimer > 0) {
+    mouse.explodeNow = mouse.explodeStrength0 * (mouse.explodeTimer / EXPLODE_FRAMES);
+    mouse.explodeTimer--;
+  } else {
+    mouse.explodeNow = 0;
+  }
+
+  // trail points fade out linearly over their lifetime, then get dropped
+  const now = performance.now();
+  mouse.trail = mouse.trail.filter((p) => now - p.born < TRAIL_LIFETIME_MS);
+
+  gpu.frame();
+  if (mouse.active) {
+    // decay swipe momentum so a stopped cursor stops pushing
+    mouse.vx *= 0.8;
+    mouse.vy *= 0.8;
+  }
+  requestAnimationFrame(frame);
+}
+
+// controls
+function bind(id, outId, fmt, apply) {
+  const el = document.getElementById(id);
+  const out = document.getElementById(outId);
+  el.addEventListener("input", () => {
+    const v = parseFloat(el.value);
+    out.textContent = fmt(v);
+    apply(v);
+  });
+}
+bind("count", "countOut", v => v, v => makeBalls(v));
+bind("force", "forceOut", v => v.toFixed(1), v => { params.force = v; });
+bind("friction", "frictionOut", v => v.toFixed(3), v => { params.friction = v; });
+bind("bounce", "bounceOut", v => v.toFixed(2), v => { params.bounce = v; });
+bind("mouseR", "mouseROut", v => v, v => { mouse.radius = v; });
+bind("size", "sizeOut", v => v, v => { params.radius = v / 2; });
+bind("speed", "speedOut", v => v.toFixed(1), v => { params.maxSpeed = v; });
+bind("zoom", "zoomOut", v => v.toFixed(1) + "×", v => { params.zoom = v; });
+bind("paintHue", "paintHueOut", v => Math.round(v) + "°", v => {
+  params.paintHue = v;
+  document.getElementById("paintSwatch").style.background = `hsl(${v}, 90%, 60%)`;
+});
+document.getElementById("palette").addEventListener("change", (e) => {
+  params.palette = e.target.value;
+  makeBalls(params.count);
+});
+document.getElementById("mode").addEventListener("change", (e) => {
+  params.mode = e.target.value;
+  mouse.charging = false; // switching mode mid-hold would otherwise mix behaviors
+  mouse.trail = [];
+  document.getElementById("paintHueControl").hidden = params.mode !== "paint";
+});
+document.getElementById("reset").addEventListener("click", () => makeBalls(params.count));
+
+resize();
+initGPU().then((g) => {
+  gpu = g;
+  gpu.upload(); // no-op zeros if placement hasn't happened yet; makeBalls re-uploads
+  requestAnimationFrame(frame);
+}).catch((err) => {
+  console.error(err);
+  stage.innerHTML = '<p class="nogpu">WebGPU indisponible — utilisez une version récente de Chrome, Brave, Edge ou Safari.</p>';
+});
+</script>
+</body>
+</html>
