@@ -460,6 +460,82 @@ function bindControls() {
   el.reset.addEventListener("click", () => resetView());
 }
 
+function syncZoomSlider() {
+  const t = scaleToZoomSlider(view.scale);
+  el.zoom.value = String(Math.round(t * 100));
+  el.zoomOut.textContent = view.scale >= 0.01 ? view.scale.toFixed(2) : view.scale.toExponential(1);
+}
+
+function bindGestures() {
+  const drag = { active: false, moved: false, lx: 0, ly: 0, sx: 0, sy: 0 };
+
+  canvas.addEventListener("pointerdown", (e) => {
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* synthetic / non-capturable */ }
+    const r = canvas.getBoundingClientRect();
+    drag.active = true;
+    drag.moved = false;
+    drag.lx = e.clientX;
+    drag.ly = e.clientY;
+    drag.sx = e.clientX - r.left;
+    drag.sy = e.clientY - r.top;
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag.active) return;
+    const dx = e.clientX - drag.lx;
+    const dy = e.clientY - drag.ly;
+    if (Math.hypot(dx, dy) > 3) drag.moved = true;
+    if (!drag.moved) return;
+    drag.lx = e.clientX;
+    drag.ly = e.clientY;
+    panBy(view, dx, dy, canvas.width, canvas.height);
+    syncZoomSlider();
+    requestRender(true);
+  });
+
+  canvas.addEventListener("pointerup", (e) => {
+    if (!drag.active) return;
+    drag.active = false;
+    if (!drag.moved && params.mode === 0) {
+      const r = canvas.getBoundingClientRect();
+      const sx = e.clientX - r.left;
+      const sy = e.clientY - r.top;
+      const x = sx * (canvas.width / r.width);
+      const y = sy * (canvas.height / r.height);
+      const p = screenToComplex(x, y, canvas.width, canvas.height, view);
+      params.mode = 1;
+      params.cRe = p.x;
+      params.cIm = p.y;
+      syncUI();
+      requestRender(true);
+    }
+  });
+
+  canvas.addEventListener("pointercancel", () => {
+    drag.active = false;
+  });
+
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) * (canvas.width / r.width);
+    const y = (e.clientY - r.top) * (canvas.height / r.height);
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    zoomAt(view, x, y, canvas.width, canvas.height, factor);
+    syncZoomSlider();
+    requestRender(true);
+  }, { passive: false });
+
+  new ResizeObserver(() => {
+    syncCanvasSize();
+    if (gpu) {
+      const budget = getRenderBudget(quality, params.maxIter, canvas.width, canvas.height);
+      resizeEscape(budget.rw, budget.rh);
+    }
+    requestRender(false);
+  }).observe(stage);
+}
+
 const NOGPU_MSG = "WebGPU indisponible — utilisez une version récente de Chrome, Brave, Edge ou Safari.";
 
 const WGSL_UNIFORMS = /* wgsl */ `
@@ -758,6 +834,7 @@ function syncCanvasSize() {
 (async function boot() {
   syncCanvasSize();
   bindControls();
+  bindGestures();
   syncUI();
   try {
     await initGPU();
