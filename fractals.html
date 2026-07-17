@@ -182,6 +182,8 @@
   }
   button.ghost:hover { color: var(--text); filter: none; background: rgba(255,255,255,0.06); }
   button.ghost.active { color: var(--accent); border-color: var(--accent); }
+  .group.julia-off { opacity: 0.4; }
+  .group.julia-off input[type="range"] { pointer-events: none; }
 </style>
 </head>
 <body>
@@ -212,7 +214,7 @@
       <output id="qualityOut" style="align-self:center;font-size:0.7rem;color:var(--muted);">—</output>
     </div>
   </div>
-  <div class="group">
+  <div class="group julia-off" id="juliaGroup">
     <span class="group-title">Julia</span>
     <div class="group-row">
       <div class="control">
@@ -317,6 +319,145 @@ function getRenderBudget(q, userMaxIter, canvasW, canvasH) {
     };
   }
   return { rw: canvasW, rh: canvasH, maxIter: userMaxIter, draft: false };
+}
+
+const params = {
+  mode: 0,
+  cRe: -0.4,
+  cIm: 0.6,
+  maxIter: 256,
+  palette: 0,
+  phase: 0,
+};
+
+let rafPending = false;
+let idleTimer = 0;
+
+const el = {
+  mode: document.getElementById("mode"),
+  cRe: document.getElementById("cRe"),
+  cIm: document.getElementById("cIm"),
+  cReOut: document.getElementById("cReOut"),
+  cImOut: document.getElementById("cImOut"),
+  maxIter: document.getElementById("maxIter"),
+  iterOut: document.getElementById("iterOut"),
+  palette: document.getElementById("palette"),
+  phase: document.getElementById("phase"),
+  phaseOut: document.getElementById("phaseOut"),
+  zoom: document.getElementById("zoom"),
+  zoomOut: document.getElementById("zoomOut"),
+  qualityOut: document.getElementById("qualityOut"),
+  warnOut: document.getElementById("warnOut"),
+  centerOut: document.getElementById("centerOut"),
+  juliaGroup: document.getElementById("juliaGroup"),
+  reset: document.getElementById("reset"),
+};
+
+function syncJuliaEnabled() {
+  const off = params.mode === 0;
+  el.juliaGroup.classList.toggle("julia-off", off);
+  el.cRe.disabled = off;
+  el.cIm.disabled = off;
+}
+
+function syncUI() {
+  el.mode.value = String(params.mode);
+  el.cRe.value = String(params.cRe);
+  el.cIm.value = String(params.cIm);
+  el.cReOut.textContent = params.cRe.toFixed(2);
+  el.cImOut.textContent = params.cIm.toFixed(2);
+  el.maxIter.value = String(params.maxIter);
+  el.iterOut.textContent = String(params.maxIter);
+  el.palette.value = String(params.palette);
+  el.phase.value = String(params.phase);
+  el.phaseOut.textContent = params.phase.toFixed(2);
+  const t = scaleToZoomSlider(view.scale);
+  el.zoom.value = String(Math.round(t * 100));
+  el.zoomOut.textContent = view.scale >= 0.01 ? view.scale.toFixed(2) : view.scale.toExponential(1);
+  el.centerOut.textContent = `${view.cx.toFixed(5)} + ${view.cy.toFixed(5)}i`;
+  syncJuliaEnabled();
+}
+
+function requestRender(interactive) {
+  if (interactive) quality.interacting = true;
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => {
+    rafPending = false;
+    syncCanvasSize();
+    const W = canvas.width, H = canvas.height;
+    const budget = getRenderBudget(quality, params.maxIter, W, H);
+    renderFrame({
+      ...budget,
+      cx: view.cx, cy: view.cy, scale: view.scale,
+      mode: params.mode, cRe: params.cRe, cIm: params.cIm,
+      palette: params.palette, phase: params.phase,
+      canvasW: W, canvasH: H,
+    });
+    el.qualityOut.textContent = budget.draft ? "draft" : "final";
+    el.centerOut.textContent = `${view.cx.toFixed(5)} + ${view.cy.toFixed(5)}i`;
+    if (view.scale < PRECISION_SCALE) {
+      el.warnOut.style.display = "";
+      el.warnOut.textContent = "Précision float32 limite — le détail peut se dégrader.";
+    } else {
+      el.warnOut.style.display = "none";
+    }
+    clearTimeout(idleTimer);
+    if (quality.interacting) {
+      idleTimer = setTimeout(() => {
+        quality.interacting = false;
+        requestRender(false);
+      }, quality.idleMs);
+    }
+  });
+}
+
+function resetView() {
+  view.cx = -0.5;
+  view.cy = 0;
+  view.scale = 1.2;
+  params.mode = 0;
+  syncUI();
+  requestRender(false);
+}
+
+function bindControls() {
+  el.mode.addEventListener("change", () => {
+    params.mode = +el.mode.value;
+    syncJuliaEnabled();
+    requestRender(true);
+  });
+  el.cRe.addEventListener("input", () => {
+    params.cRe = +el.cRe.value;
+    el.cReOut.textContent = params.cRe.toFixed(2);
+    requestRender(true);
+  });
+  el.cIm.addEventListener("input", () => {
+    params.cIm = +el.cIm.value;
+    el.cImOut.textContent = params.cIm.toFixed(2);
+    requestRender(true);
+  });
+  el.maxIter.addEventListener("input", () => {
+    params.maxIter = +el.maxIter.value;
+    el.iterOut.textContent = String(params.maxIter);
+    requestRender(true);
+  });
+  el.palette.addEventListener("change", () => {
+    params.palette = +el.palette.value;
+    requestRender(true);
+  });
+  el.phase.addEventListener("input", () => {
+    params.phase = +el.phase.value;
+    el.phaseOut.textContent = params.phase.toFixed(2);
+    requestRender(true);
+  });
+  el.zoom.addEventListener("input", () => {
+    const t = +el.zoom.value / 100;
+    view.scale = zoomSliderToScale(t);
+    el.zoomOut.textContent = view.scale >= 0.01 ? view.scale.toFixed(2) : view.scale.toExponential(1);
+    requestRender(true);
+  });
+  el.reset.addEventListener("click", () => resetView());
 }
 
 const NOGPU_MSG = "WebGPU indisponible — utilisez une version récente de Chrome, Brave, Edge ou Safari.";
@@ -615,7 +756,9 @@ function syncCanvasSize() {
 }
 
 (async function boot() {
-  const { canvasW, canvasH } = syncCanvasSize();
+  syncCanvasSize();
+  bindControls();
+  syncUI();
   try {
     await initGPU();
   } catch (err) {
@@ -623,23 +766,7 @@ function syncCanvasSize() {
     showNoGpu();
     return;
   }
-  const budget = getRenderBudget(quality, 256, canvasW, canvasH);
-  resizeEscape(budget.rw, budget.rh);
-  renderFrame({
-    rw: budget.rw,
-    rh: budget.rh,
-    maxIter: budget.maxIter,
-    cx: view.cx,
-    cy: view.cy,
-    scale: view.scale,
-    mode: 0,
-    cRe: -0.4,
-    cIm: 0.6,
-    palette: 0,
-    phase: 0,
-    canvasW,
-    canvasH,
-  });
+  requestRender(false);
 })();
 </script>
 </body>
