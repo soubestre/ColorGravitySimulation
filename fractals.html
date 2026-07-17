@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fractals</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --panel: #171a22;
+    --text: #d7dae2;
+    --muted: #8a8fa0;
+    --accent: #6e9fff;
+    --warm: #ff9a5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100vh;
+    padding: 16px;
+    gap: 12px;
+    overflow: hidden;
+  }
+  h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; flex-shrink: 0; }
+  h1 span { color: var(--muted); font-weight: 400; font-size: 0.85rem; margin-left: 8px; }
+  h1 a.nav {
+    margin-left: 14px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    padding: 4px 10px;
+    vertical-align: middle;
+  }
+  h1 a.nav:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  #viewport {
+    flex: 1;
+    align-self: stretch;
+    min-height: 0;
+    display: flex;
+    gap: 12px;
+  }
+  #stage { flex: 1; min-width: 0; }
+  #viewPanel {
+    flex-shrink: 0;
+    width: 56px;
+    background: var(--panel);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 0;
+  }
+  #viewPanel .group-title {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  #viewPanel output {
+    color: var(--text);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+  }
+  #zoom {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 20px;
+    height: 150px;
+    accent-color: var(--accent);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    background: #05060a;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    touch-action: none;
+  }
+  .nogpu {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    color: var(--muted);
+    font-size: 0.95rem;
+    text-align: center;
+    padding: 24px;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 0;
+    align-items: stretch;
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 10px 14px;
+    flex-shrink: 0;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0 14px;
+  }
+  .group + .group { border-left: 1px solid rgba(255,255,255,0.08); }
+  .group-title {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .group-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .controls > button { align-self: center; margin-left: 10px; }
+  .control { display: flex; flex-direction: column; gap: 2px; }
+  select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 0.75rem;
+  }
+  .control label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .control label output { color: var(--text); }
+  input[type="range"] {
+    width: 90px;
+    accent-color: var(--accent);
+  }
+  label.check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+    align-self: center;
+  }
+  label.check input {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    margin: 0;
+  }
+  button {
+    background: var(--accent);
+    color: #0d0f14;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid rgba(255,255,255,0.14);
+    font-weight: 500;
+  }
+  button.ghost:hover { color: var(--text); filter: none; background: rgba(255,255,255,0.06); }
+  button.ghost.active { color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>Fractals <span>Mandelbrot / Julia</span>
+  <a class="nav" href="index.html">Color Gravity</a>
+  <a class="nav" href="galaxies.html">Galaxies</a>
+</h1>
+<div id="viewport">
+  <div id="stage"><canvas id="sim"></canvas></div>
+  <div id="viewPanel">
+    <span class="group-title">Zoom</span>
+    <input type="range" id="zoom" min="0" max="100" step="1" value="30">
+    <output id="zoomOut">1.0</output>
+  </div>
+</div>
+<p id="warnOut" style="display:none;color:var(--warm,#ff9a5c);font-size:0.75rem;flex-shrink:0;"></p>
+<div class="controls">
+  <div class="group">
+    <span class="group-title">Mode</span>
+    <div class="group-row">
+      <div class="control">
+        <label>Formule</label>
+        <select id="mode">
+          <option value="0">Mandelbrot</option>
+          <option value="1">Julia</option>
+        </select>
+      </div>
+      <output id="qualityOut" style="align-self:center;font-size:0.7rem;color:var(--muted);">—</output>
+    </div>
+  </div>
+  <div class="group">
+    <span class="group-title">Julia</span>
+    <div class="group-row">
+      <div class="control">
+        <label>Re(c) <output id="cReOut">-0.40</output></label>
+        <input type="range" id="cRe" min="-2" max="2" step="0.001" value="-0.4">
+      </div>
+      <div class="control">
+        <label>Im(c) <output id="cImOut">0.60</output></label>
+        <input type="range" id="cIm" min="-2" max="2" step="0.001" value="0.6">
+      </div>
+    </div>
+  </div>
+  <div class="group">
+    <span class="group-title">Iter</span>
+    <div class="group-row">
+      <div class="control">
+        <label>Max <output id="iterOut">256</output></label>
+        <input type="range" id="maxIter" min="50" max="2000" step="10" value="256">
+      </div>
+    </div>
+  </div>
+  <div class="group">
+    <span class="group-title">Color</span>
+    <div class="group-row">
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="0">Fire</option>
+          <option value="1">Ocean</option>
+          <option value="2">Mono</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Phase <output id="phaseOut">0.00</output></label>
+        <input type="range" id="phase" min="0" max="1" step="0.01" value="0">
+      </div>
+    </div>
+  </div>
+  <div class="group">
+    <span class="group-title">Vue</span>
+    <div class="group-row">
+      <output id="centerOut" style="font-size:0.7rem;color:var(--muted);font-variant-numeric:tabular-nums;">−0.5 + 0.0i</output>
+    </div>
+  </div>
+  <button id="reset" type="button">Reset</button>
+</div>
+<script>
+"use strict";
+// Tasks 2–5 fill this in. Keep #sim canvas in the DOM (do not replace stage.innerHTML).
+const canvas = document.getElementById("sim");
+const stage = document.getElementById("stage");
+</script>
+</body>
+</html>

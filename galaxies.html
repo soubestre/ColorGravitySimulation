@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Galaxy Collision</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --panel: #171a22;
+    --text: #d7dae2;
+    --muted: #8a8fa0;
+    --accent: #6e9fff;
+    --warm: #ff9a5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100vh;
+    padding: 16px;
+    gap: 12px;
+    overflow: hidden;
+  }
+  h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; flex-shrink: 0; }
+  h1 span { color: var(--muted); font-weight: 400; font-size: 0.85rem; margin-left: 8px; }
+  h1 a.nav {
+    margin-left: 14px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    padding: 4px 10px;
+    vertical-align: middle;
+  }
+  h1 a.nav:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  #viewport {
+    flex: 1;
+    align-self: stretch;
+    min-height: 0;
+    display: flex;
+    gap: 12px;
+  }
+  #stage { flex: 1; min-width: 0; }
+  #viewPanel {
+    flex-shrink: 0;
+    width: 56px;
+    background: var(--panel);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 0;
+  }
+  #viewPanel .group-title {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  #viewPanel output {
+    color: var(--text);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+  }
+  #zoom {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 20px;
+    height: 150px;
+    accent-color: var(--accent);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    background: #05060a;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    touch-action: none;
+  }
+  .nogpu {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    color: var(--muted);
+    font-size: 0.95rem;
+    text-align: center;
+    padding: 24px;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 0;
+    align-items: stretch;
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 10px 14px;
+    flex-shrink: 0;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 0 14px;
+  }
+  .group + .group { border-left: 1px solid rgba(255,255,255,0.08); }
+  .group-title {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .group-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .controls > button { align-self: center; margin-left: 10px; }
+  .control { display: flex; flex-direction: column; gap: 2px; }
+  .control label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .control label output { color: var(--text); }
+  input[type="range"] {
+    width: 90px;
+    accent-color: var(--accent);
+  }
+  label.check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+    align-self: center;
+  }
+  label.check input {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    margin: 0;
+  }
+  button {
+    background: var(--accent);
+    color: #0d0f14;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid rgba(255,255,255,0.14);
+    font-weight: 500;
+  }
+  button.ghost:hover { color: var(--text); filter: none; background: rgba(255,255,255,0.06); }
+  button.ghost.active { color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+  <h1>Galaxy Collision <span>deux galaxies se rencontrent</span>
+    <a class="nav" href="index.html">Color Gravity</a>
+    <a class="nav" href="fractals.html">Fractals</a>
+  </h1>
+  <div id="viewport">
+    <div id="stage"><canvas id="sim"></canvas></div>
+    <div id="viewPanel">
+      <span class="group-title">Zoom</span>
+      <input type="range" id="zoom" min="0.4" max="3" step="0.05" value="1">
+      <output id="zoomOut">1.0×</output>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="group">
+      <span class="group-title">Galaxies</span>
+      <div class="group-row">
+        <div class="control">
+          <label>Étoiles <output id="countOut">3000</output></label>
+          <input type="range" id="count" min="1000" max="4000" step="100" value="3000">
+        </div>
+        <div class="control">
+          <label>Approche <output id="approachOut">0.9</output></label>
+          <input type="range" id="approach" min="0.2" max="3" step="0.1" value="0.9">
+        </div>
+      </div>
+    </div>
+    <div class="group">
+      <span class="group-title">Physique</span>
+      <div class="group-row">
+        <div class="control">
+          <label>G <output id="gOut">1.0</output></label>
+          <input type="range" id="g" min="0.2" max="3" step="0.1" value="1.0">
+        </div>
+        <div class="control">
+          <label>Noyau gros <output id="mBigOut">900</output></label>
+          <input type="range" id="mBig" min="200" max="2000" step="50" value="900">
+        </div>
+        <div class="control">
+          <label>Noyau petit <output id="mSmallOut">140</output></label>
+          <input type="range" id="mSmall" min="40" max="600" step="20" value="140">
+        </div>
+        <div class="control">
+          <label>Friction <output id="frictionOut">0.000</output></label>
+          <input type="range" id="friction" min="0" max="0.02" step="0.001" value="0">
+        </div>
+      </div>
+    </div>
+    <div class="group">
+      <span class="group-title">Vue</span>
+      <div class="group-row">
+        <label class="check">
+          <input type="checkbox" id="trails">
+          Trails
+        </label>
+      </div>
+    </div>
+    <button id="play" type="button" class="ghost active">Pause</button>
+    <button id="reset" type="button">Reset</button>
+  </div>
+
+<script>
+"use strict";
+
+const canvas = document.getElementById("sim");
+const stage = document.getElementById("stage");
+let W = 0, H = 0;
+
+const MAXN = 4002; // 4000 stars + 2 nuclei
+const CELL_SIZE_BASE = 80;
+const MAXCELLS = 8192;
+const GRID_TARGET_CELLS = 3500;
+const NUCLEUS_BIG = 0;
+const NUCLEUS_SMALL = 1;
+
+const params = {
+  count: 3000,       // stars only (nuclei extra)
+  g: 1.0,
+  mBig: 900,
+  mSmall: 140,
+  approach: 0.9,
+  friction: 0,
+  trails: false,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  paused: false,
+  starRadius: 1.35,
+  soft: 22,
+};
+
+const posA = new Float32Array(MAXN * 2);
+const velA = new Float32Array(MAXN * 2);
+const massA = new Float32Array(MAXN);
+const colA = new Float32Array(MAXN * 4);
+const radiusA = new Float32Array(MAXN);
+
+let gpu = null;
+let placed = false;
+
+function totalParticles() {
+  return params.count + 2;
+}
+
+function computeGrid(w, h) {
+  let cellSize = CELL_SIZE_BASE;
+  if ((w / cellSize) * (h / cellSize) > GRID_TARGET_CELLS) {
+    cellSize = Math.sqrt((w * h) / GRID_TARGET_CELLS);
+  }
+  const cols = Math.max(1, Math.floor(w / cellSize));
+  const rows = Math.max(1, Math.floor(h / cellSize));
+  return { cols, rows, cellW: w / cols, cellH: h / rows, numCells: cols * rows };
+}
+
+function clampPan() {
+  const z = Math.max(params.zoom, 0.4);
+  if (z <= 1) {
+    const maxX = (W * 0.5) * (1 / z - 1);
+    const maxY = (H * 0.5) * (1 / z - 1);
+    params.panX = Math.max(-maxX, Math.min(maxX, params.panX));
+    params.panY = Math.max(-maxY, Math.min(maxY, params.panY));
+    return;
+  }
+  const maxX = (W * 0.5) * (1 - 1 / z);
+  const maxY = (H * 0.5) * (1 - 1 / z);
+  params.panX = Math.max(-maxX, Math.min(maxX, params.panX));
+  params.panY = Math.max(-maxY, Math.min(maxY, params.panY));
+}
+
+function setZoom(z) {
+  params.zoom = Math.min(3, Math.max(0.4, z));
+  const el = document.getElementById("zoom");
+  const out = document.getElementById("zoomOut");
+  if (el) el.value = String(params.zoom);
+  if (out) out.textContent = params.zoom.toFixed(1) + "×";
+  clampPan();
+}
+
+function screenToWorld(x, y) {
+  const cx = W / 2, cy = H / 2;
+  return {
+    x: (x - cx) / params.zoom + cx + params.panX,
+    y: (y - cy) / params.zoom + cy + params.panY,
+  };
+}
+
+function rand() { return Math.random(); }
+function randn() {
+  // Box-Muller
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function setColor(i, r, g, b, a = 1) {
+  const o = i * 4;
+  colA[o] = r; colA[o + 1] = g; colA[o + 2] = b; colA[o + 3] = a;
+}
+
+function mixColor(base, jitter) {
+  return [
+    Math.min(1, Math.max(0, base[0] + (rand() - 0.5) * jitter)),
+    Math.min(1, Math.max(0, base[1] + (rand() - 0.5) * jitter)),
+    Math.min(1, Math.max(0, base[2] + (rand() - 0.5) * jitter)),
+  ];
+}
+
+/** Spawn one spiral/disk galaxy around nucleus index `nucIdx`. */
+function spawnGalaxy({
+  nucIdx, cx, cy, vx0, vy0, M, nStars, diskR, startIdx,
+  clockwise, cold, arms,
+}) {
+  massA[nucIdx] = M;
+  posA[nucIdx * 2] = cx;
+  posA[nucIdx * 2 + 1] = cy;
+  velA[nucIdx * 2] = vx0;
+  velA[nucIdx * 2 + 1] = vy0;
+  radiusA[nucIdx] = cold ? 7 : 4.5;
+  if (cold) setColor(nucIdx, 0.75, 0.9, 1.0, 1);
+  else setColor(nucIdx, 1.0, 0.75, 0.45, 1);
+
+  const G = params.g * 0.55;
+  const soft = params.soft;
+  const dir = clockwise ? 1 : -1;
+  const baseCold = [0.45, 0.72, 1.0];
+  const baseWarm = [1.0, 0.55, 0.28];
+  const base = cold ? baseCold : baseWarm;
+
+  for (let k = 0; k < nStars; k++) {
+    const i = startIdx + k;
+    // keep stars outside the soft core — plunging orbits heat & sink the disk
+    const u = Math.pow(rand(), 0.9);
+    const rMin = soft * 2.2;
+    let r = rMin + u * diskR;
+    let theta = rand() * Math.PI * 2;
+    if (arms > 0) {
+      const arm = Math.floor(rand() * arms);
+      const pitch = 0.35;
+      theta = (arm / arms) * Math.PI * 2 + Math.log(1 + (r - rMin) / diskR) / pitch + (rand() - 0.5) * 0.55;
+    }
+    const x = cx + Math.cos(theta) * r;
+    const y = cy + Math.sin(theta) * r;
+    // Softened force is weaker than Newtonian — use Newtonian circular speed
+    // (with floor at soft) * slight boost so disks don't slowly sink.
+    const vOrb = Math.sqrt(Math.max(0.05, (G * M) / Math.max(r, soft))) * 1.12;
+    const tx = -Math.sin(theta) * dir;
+    const ty = Math.cos(theta) * dir;
+    posA[i * 2] = x;
+    posA[i * 2 + 1] = y;
+    velA[i * 2] = vx0 + tx * vOrb;
+    velA[i * 2 + 1] = vy0 + ty * vOrb;
+    massA[i] = 0.4 + rand() * 1.6;
+    radiusA[i] = params.starRadius * (0.7 + massA[i] * 0.25);
+    const c = mixColor(base, cold ? 0.12 : 0.18);
+    const bright = 0.55 + 0.45 * (1 - (r - rMin) / (diskR + 8));
+    setColor(i, c[0] * bright, c[1] * bright, c[2] * bright, 1);
+  }
+}
+
+function makeGalaxies(starCount) {
+  params.count = starCount;
+  const n = starCount;
+  // ~60/40 split: big gets more stars
+  const nBig = Math.floor(n * 0.6);
+  const nSmall = n - nBig;
+
+  const cx = W * 0.5;
+  const cy = H * 0.5;
+  const sep = Math.min(W, H) * 0.32;
+  const impact = Math.min(W, H) * 0.08; // oblique collision
+  const v = params.approach;
+
+  // Big (cold) on the left, small (warm) on the right — closing in
+  spawnGalaxy({
+    nucIdx: NUCLEUS_BIG,
+    cx: cx - sep, cy: cy - impact * 0.35,
+    vx0: v * 0.55, vy0: 0.05,
+    M: params.mBig,
+    nStars: nBig,
+    diskR: Math.min(W, H) * 0.18,
+    startIdx: 2,
+    clockwise: true,
+    cold: true,
+    arms: 2,
+  });
+
+  spawnGalaxy({
+    nucIdx: NUCLEUS_SMALL,
+    cx: cx + sep, cy: cy + impact,
+    vx0: -v * 0.9, vy0: -0.12,
+    M: params.mSmall,
+    nStars: nSmall,
+    diskR: Math.min(W, H) * 0.10,
+    startIdx: 2 + nBig,
+    clockwise: false,
+    cold: false,
+    arms: 3,
+  });
+
+  // clear unused slots
+  for (let i = totalParticles(); i < MAXN; i++) {
+    posA[i * 2] = -9999;
+    posA[i * 2 + 1] = -9999;
+    velA[i * 2] = 0;
+    velA[i * 2 + 1] = 0;
+    massA[i] = 0;
+    radiusA[i] = 0;
+    setColor(i, 0, 0, 0, 0);
+  }
+
+  if (gpu) {
+    gpu.upload();
+    gpu.freshScene = true;
+  }
+}
+
+/* ------------------------------ shaders ------------------------------- */
+
+const WGSL_SIM = /* wgsl */`
+struct Params {
+  size: vec2f,
+  g: f32,
+  friction: f32,
+  soft: f32,
+  count: f32,       // total particles including nuclei
+  starRadius: f32,
+  zoom: f32,
+  grid: vec4f,      // cols, rows, cellW, cellH
+  pan: vec2f,
+  mBig: f32,
+  mSmall: f32,
+};
+@group(0) @binding(0) var<uniform> p: Params;
+@group(0) @binding(1) var<storage, read_write> pos: array<vec2f>;
+@group(0) @binding(2) var<storage, read_write> vel: array<vec2f>;
+@group(0) @binding(3) var<storage, read> mass: array<f32>;
+@group(0) @binding(4) var<storage, read_write> counts: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> cellId: array<u32>;
+@group(0) @binding(6) var<storage, read_write> offsets: array<u32>;
+@group(0) @binding(7) var<storage, read_write> sortedIdx: array<u32>;
+
+const NEIGH: i32 = 2;
+const BIG: u32 = 0u;
+const SMALL: u32 = 1u;
+
+fn cellCoord(position: vec2f) -> vec2i {
+  let cx = i32(clamp(floor(position.x / p.grid.z), 0.0, p.grid.x - 1.0));
+  let cy = i32(clamp(floor(position.y / p.grid.w), 0.0, p.grid.y - 1.0));
+  return vec2i(cx, cy);
+}
+
+fn neighFor(rangePx: f32) -> i32 {
+  let cell = min(p.grid.z, p.grid.w);
+  return min(NEIGH, max(1, i32(ceil(rangePx / cell))));
+}
+
+@compute @workgroup_size(256)
+fn clearCounts(@builtin(global_invocation_id) gid: vec3u) {
+  let numCells = u32(p.grid.x) * u32(p.grid.y);
+  if (gid.x >= numCells) { return; }
+  atomicStore(&counts[gid.x], 0u);
+}
+
+@compute @workgroup_size(256)
+fn countCells(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  let cc = cellCoord(pos[i]);
+  let c = u32(cc.y) * u32(p.grid.x) + u32(cc.x);
+  cellId[i] = c;
+  atomicAdd(&counts[c], 1u);
+}
+
+@compute @workgroup_size(1)
+fn prefixSum() {
+  let numCells = u32(p.grid.x) * u32(p.grid.y);
+  var running = 0u;
+  for (var c = 0u; c < numCells; c++) {
+    let cnt = atomicLoad(&counts[c]);
+    offsets[c] = running;
+    running += cnt;
+    atomicStore(&counts[c], offsets[c]);
+  }
+  offsets[numCells] = running;
+}
+
+@compute @workgroup_size(256)
+fn scatter(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  let c = cellId[i];
+  let slot = atomicAdd(&counts[c], 1u);
+  sortedIdx[slot] = i;
+}
+
+fn softGravity(dxy: vec2f, otherMass: f32) -> vec2f {
+  var d2 = dot(dxy, dxy) + p.soft * p.soft;
+  let inv = inverseSqrt(d2);
+  // G * M / r^2  along unit direction = G * M * dxy / r^3
+  let inv3 = inv * inv * inv;
+  return dxy * (p.g * otherMass * inv3);
+}
+
+@compute @workgroup_size(256)
+fn forces(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  let myPos = pos[i];
+  var acc = vec2f(0.0, 0.0);
+
+  // Long-range pull from both nuclei (hybrid C). Nuclei also pull each other.
+  // No star–star gravity: self-gravity collapses toy disks; nuclei carry the mass.
+  if (i != BIG) {
+    acc += softGravity(pos[BIG] - myPos, p.mBig);
+  }
+  if (i != SMALL) {
+    acc += softGravity(pos[SMALL] - myPos, p.mSmall);
+  }
+
+  vel[i] += acc;
+}
+
+@compute @workgroup_size(256)
+fn integrate(@builtin(global_invocation_id) gid: vec3u) {
+  let n = u32(p.count);
+  let i = gid.x;
+  if (i >= n) { return; }
+  var v = vel[i];
+  var x = pos[i];
+
+  if (p.friction > 0.00001) {
+    v *= (1.0 - p.friction);
+  }
+
+  // mild speed cap to keep the sim stable during close encounters
+  let sp = length(v);
+  let vmax = select(18.0, 8.0, i <= SMALL);
+  if (sp > vmax) { v *= vmax / sp; }
+
+  x += v;
+
+  // soft edge: gentle inward push near borders so galaxies stay on stage
+  let margin = 40.0;
+  let push = 0.08;
+  if (x.x < margin) { v.x += (margin - x.x) * push * 0.02; }
+  if (x.x > p.size.x - margin) { v.x -= (x.x - (p.size.x - margin)) * push * 0.02; }
+  if (x.y < margin) { v.y += (margin - x.y) * push * 0.02; }
+  if (x.y > p.size.y - margin) { v.y -= (x.y - (p.size.y - margin)) * push * 0.02; }
+
+  pos[i] = x;
+  vel[i] = v;
+}
+`;
+
+const WGSL_DRAW = /* wgsl */`
+struct Params {
+  size: vec2f,
+  g: f32,
+  friction: f32,
+  soft: f32,
+  count: f32,
+  starRadius: f32,
+  zoom: f32,
+  grid: vec4f,
+  pan: vec2f,
+  mBig: f32,
+  mSmall: f32,
+};
+@group(0) @binding(0) var<uniform> p: Params;
+@group(0) @binding(1) var<storage, read> pos: array<vec2f>;
+@group(0) @binding(2) var<storage, read> col: array<vec4f>;
+@group(0) @binding(3) var<storage, read> rad: array<f32>;
+
+fn clipPos(world: vec2f) -> vec4f {
+  let center = p.size * 0.5;
+  let scaled = (world - center - p.pan) * p.zoom + center;
+  return vec4f(scaled.x / p.size.x * 2.0 - 1.0, 1.0 - scaled.y / p.size.y * 2.0, 0.0, 1.0);
+}
+
+fn clipDelta(delta: vec2f) -> vec4f {
+  let scaled = delta * p.zoom;
+  return vec4f(scaled.x / p.size.x * 2.0, -scaled.y / p.size.y * 2.0, 0.0, 0.0);
+}
+
+fn quadCorner(vi: u32) -> vec2f {
+  var q = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+  );
+  return q[vi];
+}
+
+struct BallOut {
+  @builtin(position) posn: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) color: vec4f,
+  @location(2) radius: f32,
+};
+
+@vertex fn vsBall(@builtin(vertex_index) vi: u32,
+                  @builtin(instance_index) ii: u32) -> BallOut {
+  let r = rad[ii];
+  let corner = quadCorner(vi) * (r + 1.5);
+  var out: BallOut;
+  out.posn = clipPos(pos[ii]) + clipDelta(corner);
+  out.uv = corner;
+  out.color = col[ii];
+  out.radius = r;
+  return out;
+}
+
+@fragment fn fsBall(in: BallOut) -> @location(0) vec4f {
+  let d = length(in.uv);
+  let core = clamp(in.radius + 0.5 - d, 0.0, 1.0);
+  // soft halo for nuclei / bright stars
+  let halo = clamp((in.radius * 2.2 - d) / max(in.radius * 2.2, 0.001), 0.0, 1.0);
+  let a = max(core, halo * halo * 0.35);
+  return vec4f(in.color.rgb * a, a);
+}
+`;
+
+const WGSL_POST = /* wgsl */`
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var tex: texture_2d<f32>;
+
+struct VSOut {
+  @builtin(position) posn: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex fn vsFull(@builtin(vertex_index) vi: u32) -> VSOut {
+  var xy = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var out: VSOut;
+  out.posn = vec4f(xy[vi], 0.0, 1.0);
+  out.uv = vec2f(xy[vi].x * 0.5 + 0.5, 0.5 - xy[vi].y * 0.5);
+  return out;
+}
+
+@fragment fn fsFade() -> @location(0) vec4f {
+  // darker fade = longer trails
+  return vec4f(0.012 * 0.22, 0.014 * 0.22, 0.022 * 0.22, 0.22);
+}
+
+@fragment fn fsBlit(in: VSOut) -> @location(0) vec4f {
+  return textureSample(tex, samp, in.uv);
+}
+`;
+
+/* ----------------------------- GPU engine ----------------------------- */
+
+async function initGPU() {
+  const adapter = navigator.gpu && await navigator.gpu.requestAdapter();
+  if (!adapter) throw new Error("WebGPU unavailable");
+  const device = await adapter.requestDevice();
+  const context = canvas.getContext("webgpu");
+  const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format: canvasFormat, alphaMode: "opaque" });
+  const q = device.queue;
+
+  // Params: 16 floats = 64 bytes (aligned)
+  const uniBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const posBuf = device.createBuffer({ size: posA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const velBuf = device.createBuffer({ size: velA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const massBuf = device.createBuffer({ size: massA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const colBuf = device.createBuffer({ size: colA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const radBuf = device.createBuffer({ size: radiusA.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+
+  const cellIdBuf = device.createBuffer({ size: MAXN * 4, usage: GPUBufferUsage.STORAGE });
+  const countsBuf = device.createBuffer({ size: MAXCELLS * 4, usage: GPUBufferUsage.STORAGE });
+  const offsetsBuf = device.createBuffer({ size: (MAXCELLS + 1) * 4, usage: GPUBufferUsage.STORAGE });
+  const sortedIdxBuf = device.createBuffer({ size: MAXN * 4, usage: GPUBufferUsage.STORAGE });
+
+  const simMod = device.createShaderModule({ code: WGSL_SIM });
+  const drawMod = device.createShaderModule({ code: WGSL_DRAW });
+  const postMod = device.createShaderModule({ code: WGSL_POST });
+
+  const simBGL = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    ],
+  });
+  const simLayout = device.createPipelineLayout({ bindGroupLayouts: [simBGL] });
+  const mkPipe = (entryPoint) => device.createComputePipeline({ layout: simLayout, compute: { module: simMod, entryPoint } });
+  const clearCountsPipe = mkPipe("clearCounts");
+  const countCellsPipe = mkPipe("countCells");
+  const prefixSumPipe = mkPipe("prefixSum");
+  const scatterPipe = mkPipe("scatter");
+  const forcesPipe = mkPipe("forces");
+  const integratePipe = mkPipe("integrate");
+
+  const simBind = device.createBindGroup({
+    layout: simBGL,
+    entries: [
+      { binding: 0, resource: { buffer: uniBuf } },
+      { binding: 1, resource: { buffer: posBuf } },
+      { binding: 2, resource: { buffer: velBuf } },
+      { binding: 3, resource: { buffer: massBuf } },
+      { binding: 4, resource: { buffer: countsBuf } },
+      { binding: 5, resource: { buffer: cellIdBuf } },
+      { binding: 6, resource: { buffer: offsetsBuf } },
+      { binding: 7, resource: { buffer: sortedIdxBuf } },
+    ],
+  });
+
+  const SCENE_FORMAT = "rgba8unorm";
+  const PREMUL = {
+    color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+  };
+  const ballPipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: drawMod, entryPoint: "vsBall" },
+    fragment: { module: drawMod, entryPoint: "fsBall", targets: [{ format: SCENE_FORMAT, blend: PREMUL }] },
+  });
+  const fadePipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: postMod, entryPoint: "vsFull" },
+    fragment: { module: postMod, entryPoint: "fsFade", targets: [{ format: SCENE_FORMAT, blend: PREMUL }] },
+  });
+  const blitPipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: postMod, entryPoint: "vsFull" },
+    fragment: { module: postMod, entryPoint: "fsBlit", targets: [{ format: canvasFormat }] },
+  });
+
+  const ballBind = device.createBindGroup({
+    layout: ballPipe.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: uniBuf } },
+      { binding: 1, resource: { buffer: posBuf } },
+      { binding: 2, resource: { buffer: colBuf } },
+      { binding: 3, resource: { buffer: radBuf } },
+    ],
+  });
+  const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+
+  let sceneView = null, blitBind = null, freshScene = true;
+  function makeScene() {
+    const tex = device.createTexture({
+      size: [Math.max(W, 1), Math.max(H, 1)],
+      format: SCENE_FORMAT,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    sceneView = tex.createView();
+    blitBind = device.createBindGroup({
+      layout: blitPipe.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: sampler },
+        { binding: 1, resource: sceneView },
+      ],
+    });
+    freshScene = true;
+  }
+  makeScene();
+
+  const uniData = new Float32Array(16);
+
+  return {
+    get freshScene() { return freshScene; },
+    set freshScene(v) { freshScene = v; },
+
+    upload() {
+      const n = totalParticles();
+      q.writeBuffer(posBuf, 0, posA, 0, n * 2);
+      q.writeBuffer(velBuf, 0, velA, 0, n * 2);
+      q.writeBuffer(massBuf, 0, massA, 0, n);
+      q.writeBuffer(colBuf, 0, colA, 0, n * 4);
+      q.writeBuffer(radBuf, 0, radiusA, 0, n);
+    },
+
+    resize() { makeScene(); },
+
+    frame() {
+      const n = totalParticles();
+      const grid = computeGrid(W, H);
+      // scale G into pixel-friendly units
+      const gScaled = params.g * 0.55;
+      // friction slider is gentle — raw values collapse disks in seconds
+      const friction = params.friction * 0.12;
+      uniData.set([
+        W, H,
+        gScaled, friction,
+        params.soft, n,
+        params.starRadius, params.zoom,
+        grid.cols, grid.rows, grid.cellW, grid.cellH,
+        params.panX, params.panY,
+        params.mBig, params.mSmall,
+      ]);
+      q.writeBuffer(uniBuf, 0, uniData);
+
+      const enc = device.createCommandEncoder();
+
+      if (!params.paused) {
+        const nGroups = Math.ceil(n / 256);
+        const cp = enc.beginComputePass();
+        cp.setBindGroup(0, simBind);
+        // nuclei-only gravity — no spatial hash needed
+        cp.setPipeline(forcesPipe); cp.dispatchWorkgroups(nGroups);
+        cp.setPipeline(integratePipe); cp.dispatchWorkgroups(nGroups);
+        cp.end();
+      }
+
+      const loadOp = (!params.trails || freshScene) ? "clear" : "load";
+      const scene = enc.beginRenderPass({
+        colorAttachments: [{
+          view: sceneView,
+          loadOp,
+          clearValue: { r: 0.02, g: 0.022, b: 0.035, a: 1 },
+          storeOp: "store",
+        }],
+      });
+      freshScene = false;
+      if (params.trails && loadOp === "load") {
+        scene.setPipeline(fadePipe); scene.draw(3);
+      }
+      scene.setPipeline(ballPipe); scene.setBindGroup(0, ballBind); scene.draw(6, n);
+      scene.end();
+
+      const blit = enc.beginRenderPass({
+        colorAttachments: [{
+          view: context.getCurrentTexture().createView(),
+          loadOp: "clear",
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          storeOp: "store",
+        }],
+      });
+      blit.setPipeline(blitPipe); blit.setBindGroup(0, blitBind); blit.draw(3);
+      blit.end();
+
+      q.submit([enc.finish()]);
+    },
+  };
+}
+
+/* ------------------------------ input -------------------------------- */
+
+const panDrag = { active: false, lastX: 0, lastY: 0 };
+
+canvas.addEventListener("pointerdown", (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  panDrag.active = true;
+  panDrag.lastX = e.offsetX;
+  panDrag.lastY = e.offsetY;
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (!panDrag.active) return;
+  const dx = e.offsetX - panDrag.lastX;
+  const dy = e.offsetY - panDrag.lastY;
+  panDrag.lastX = e.offsetX;
+  panDrag.lastY = e.offsetY;
+  params.panX -= dx / params.zoom;
+  params.panY -= dy / params.zoom;
+  clampPan();
+});
+canvas.addEventListener("pointerup", () => { panDrag.active = false; });
+canvas.addEventListener("pointercancel", () => { panDrag.active = false; });
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const before = screenToWorld(e.offsetX, e.offsetY);
+  const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+  setZoom(params.zoom * factor);
+  const after = screenToWorld(e.offsetX, e.offsetY);
+  params.panX += before.x - after.x;
+  params.panY += before.y - after.y;
+  clampPan();
+}, { passive: false });
+
+/* ------------------------------ main loop ----------------------------- */
+
+function resize() {
+  W = canvas.width = Math.max(1, stage.clientWidth);
+  H = canvas.height = Math.max(1, stage.clientHeight);
+  clampPan();
+  if (!placed && stage.clientWidth > 0 && stage.clientHeight > 0) {
+    placed = true;
+    makeGalaxies(params.count);
+  }
+  if (gpu) gpu.resize();
+}
+new ResizeObserver(resize).observe(stage);
+
+function frame() {
+  if (gpu) gpu.frame();
+  requestAnimationFrame(frame);
+}
+
+function bind(id, outId, fmt, apply) {
+  const el = document.getElementById(id);
+  const out = document.getElementById(outId);
+  el.addEventListener("input", () => {
+    const v = parseFloat(el.value);
+    out.textContent = fmt(v);
+    apply(v);
+  });
+}
+
+bind("count", "countOut", v => v, v => makeGalaxies(v));
+bind("g", "gOut", v => v.toFixed(1), v => { params.g = v; });
+bind("mBig", "mBigOut", v => v, v => { params.mBig = v; makeGalaxies(params.count); });
+bind("mSmall", "mSmallOut", v => v, v => { params.mSmall = v; makeGalaxies(params.count); });
+bind("approach", "approachOut", v => v.toFixed(1), v => { params.approach = v; makeGalaxies(params.count); });
+bind("friction", "frictionOut", v => v.toFixed(3), v => { params.friction = v; });
+bind("zoom", "zoomOut", v => v.toFixed(1) + "×", v => setZoom(v));
+
+document.getElementById("trails").addEventListener("change", (e) => {
+  params.trails = e.target.checked;
+  if (gpu) gpu.freshScene = true;
+});
+
+const playBtn = document.getElementById("play");
+playBtn.addEventListener("click", () => {
+  params.paused = !params.paused;
+  playBtn.textContent = params.paused ? "Play" : "Pause";
+  playBtn.classList.toggle("active", !params.paused);
+});
+
+document.getElementById("reset").addEventListener("click", () => {
+  makeGalaxies(params.count);
+});
+
+resize();
+initGPU().then((g) => {
+  gpu = g;
+  if (placed) makeGalaxies(params.count);
+  else gpu.upload();
+  requestAnimationFrame(frame);
+}).catch((err) => {
+  console.error(err);
+  stage.innerHTML = '<p class="nogpu">WebGPU indisponible — utilisez une version récente de Chrome, Brave, Edge ou Safari.</p>';
+});
+</script>
+</body>
+</html>

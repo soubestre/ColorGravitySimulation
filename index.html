@@ -172,10 +172,25 @@
   }
   button.ghost:hover { color: var(--text); filter: none; background: rgba(255,255,255,0.06); }
   button.ghost.ok { color: var(--accent); border-color: var(--accent); }
+  h1 a.nav {
+    margin-left: 14px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    padding: 4px 10px;
+    vertical-align: middle;
+  }
+  h1 a.nav:hover { color: var(--text); background: rgba(255,255,255,0.06); }
 </style>
 </head>
 <body>
-  <h1>Color Gravity <span>similar hues attract</span></h1>
+  <h1>Color Gravity <span>similar hues attract</span>
+    <a class="nav" href="galaxies.html">Galaxies</a>
+    <a class="nav" href="fractals.html">Fractals</a>
+  </h1>
   <div id="viewport">
     <div id="stage"><canvas id="sim"></canvas></div>
     <div id="viewPanel">
