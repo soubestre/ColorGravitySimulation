@@ -286,16 +286,18 @@ let W = 0, H = 0;
 const MAXN = 20000; // GPU buffer capacity, matches the slider max
 
 // spatial grid: balls only test others in their own neighborhood instead
-// of every other ball. CELL_SIZE sets that neighborhood's scale; MAXCELLS
-// bounds the grid buffers for a worst-case canvas size, and cellSize grows
-// automatically (see computeGrid) if a huge canvas would otherwise need
-// more cells than that.
+// of every other ball. Cell size tracks ball radius (see computeGrid);
+// MAXCELLS bounds the grid buffers, and cells grow if a huge canvas would
+// otherwise need more cells than GRID_TARGET_CELLS.
 const CELL_SIZE = 120;
 const MAXCELLS = 8192;
 const GRID_TARGET_CELLS = 4000;
 
-function computeGrid(w, h) {
-  let cellSize = CELL_SIZE;
+// Cell size tracks ball radius so a 5×5 neighborhood stays useful without
+// packing 10k tiny balls into the same fat cells (that freezes the GPU).
+function computeGrid(w, h, radius = 5) {
+  const forceRange = Math.min(200, Math.max(80, radius * 36));
+  let cellSize = Math.max(forceRange / 2, radius * 8, 24);
   if ((w / cellSize) * (h / cellSize) > GRID_TARGET_CELLS) {
     cellSize = Math.sqrt((w * h) / GRID_TARGET_CELLS);
   }
@@ -322,6 +324,7 @@ const params = {
 
 // after diameter changes: 1 → 0 over ~45 frames; drives GPU unjam push + min speed
 let unjamBoost = 0;
+let frameCounter = 0;
 
 function clampPan() {
   if (params.zoom <= 1) {
@@ -783,21 +786,24 @@ fn forces(@builtin(global_invocation_id) gid: vec3u) {
   let myPos = pos[i];
   let myHue = hue[i];
   var acc = vec2f(0.0, 0.0);
-  // Proven circle-sorting balance (pre-pâté tweaks): full neighborhood,
-  // soft≈20, attraction always on, linear differential push.
+  // soft≈20 + differential push (proven circle balance). Force range is
+  // capped: beyond ~soft×8 the 1/(d+soft) pull is tiny, but with 10k+ balls
+  // in fat cells those distant pairs still cost a fortune.
   let collideDist = p.radius * 2.2;
   let soft = 20.0;
   let unjam = p._padPan.y;
-  // tiny balls need a harder short-range push or they still stack
   let pushGain = select(1.0, max(1.0, 4.0 / max(p.radius, 1.0)), p.radius < 3.5);
+  let forceRange = min(200.0, max(80.0, p.radius * 36.0));
+  let forceRange2 = forceRange * forceRange;
+  let neighR = neighFor(forceRange);
   let cc = cellCoord(myPos);
   let cols = i32(p.grid.x);
   let rows = i32(p.grid.y);
 
-  for (var oy = -NEIGH; oy <= NEIGH; oy++) {
+  for (var oy = -neighR; oy <= neighR; oy++) {
     let ny = cc.y + oy;
     if (ny < 0 || ny >= rows) { continue; }
-    for (var ox = -NEIGH; ox <= NEIGH; ox++) {
+    for (var ox = -neighR; ox <= neighR; ox++) {
       let nx = cc.x + ox;
       if (nx < 0 || nx >= cols) { continue; }
       let c = u32(ny * cols + nx);
@@ -808,6 +814,7 @@ fn forces(@builtin(global_invocation_id) gid: vec3u) {
         if (j == i) { continue; }
         var dxy = pos[j] - myPos;
         var d2 = dot(dxy, dxy);
+        if (d2 >= forceRange2) { continue; }
         if (d2 < 0.01) {
           let a = f32(i) * 12.9898 + f32(j) * 78.233;
           dxy = vec2f(cos(a), sin(a));
@@ -817,8 +824,6 @@ fn forces(@builtin(global_invocation_id) gid: vec3u) {
         let d = d2 * invD;
         let dir = dxy * invD;
         let aff = affinity(myHue, hue[j]);
-        // Globale + Couleur×aff across the whole 5×5 neighborhood —
-        // short-range-only color was why the hue circle never closed
         var f = dir * ((p.gGlobal + p.gColor * aff) / (d + soft));
         if (d < collideDist) {
           let overlap = (collideDist - d) / collideDist;
@@ -1318,7 +1323,7 @@ async function initGPU() {
 
     frame() {
       const n = params.count;
-      const grid = computeGrid(W, H);
+      const grid = computeGrid(W, H, params.radius);
       const dragK = Math.max(0.02, 0.01 + params.friction * 3.0);
       const gGlobal = params.gGlobal * 0.06;
       const gColor = params.gColor * 0.06;
@@ -1341,6 +1346,9 @@ async function initGPU() {
       const enc = device.createCommandEncoder();
       const nGroups = Math.ceil(n / 256);
       const cellGroups = Math.ceil(grid.numCells / 256);
+      // separate is local/cheap-ish; at high N run it every other frame
+      frameCounter++;
+      const doSeparate = n < 5000 || unjamBoost > 0 || (frameCounter & 1) === 1;
 
       const cp = enc.beginComputePass();
       cp.setBindGroup(0, simBind);
@@ -1349,8 +1357,9 @@ async function initGPU() {
       cp.setPipeline(prefixSumPipe); cp.dispatchWorkgroups(1);
       cp.setPipeline(scatterPipe); cp.dispatchWorkgroups(nGroups);
       cp.setPipeline(forcesPipe); cp.dispatchWorkgroups(nGroups);
-      // same hash as forces (no second rebuild) — peel before integrate moves
-      cp.setPipeline(separatePipe); cp.dispatchWorkgroups(nGroups);
+      if (doSeparate) {
+        cp.setPipeline(separatePipe); cp.dispatchWorkgroups(nGroups);
+      }
       cp.setPipeline(integratePipe); cp.dispatchWorkgroups(nGroups);
       cp.end();
 
