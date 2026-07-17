@@ -467,17 +467,14 @@ function syncZoomSlider() {
 }
 
 function bindGestures() {
-  const drag = { active: false, moved: false, lx: 0, ly: 0, sx: 0, sy: 0 };
+  const drag = { active: false, moved: false, lx: 0, ly: 0 };
 
   canvas.addEventListener("pointerdown", (e) => {
     try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* synthetic / non-capturable */ }
-    const r = canvas.getBoundingClientRect();
     drag.active = true;
     drag.moved = false;
     drag.lx = e.clientX;
     drag.ly = e.clientY;
-    drag.sx = e.clientX - r.left;
-    drag.sy = e.clientY - r.top;
   });
 
   canvas.addEventListener("pointermove", (e) => {
@@ -488,7 +485,14 @@ function bindGestures() {
     if (!drag.moved) return;
     drag.lx = e.clientX;
     drag.ly = e.clientY;
-    panBy(view, dx, dy, canvas.width, canvas.height);
+    const r = canvas.getBoundingClientRect();
+    panBy(
+      view,
+      dx * (canvas.width / r.width),
+      dy * (canvas.height / r.height),
+      canvas.width,
+      canvas.height
+    );
     syncZoomSlider();
     requestRender(true);
   });
