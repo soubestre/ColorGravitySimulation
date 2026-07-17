@@ -318,7 +318,12 @@ function getRenderBudget(q, userMaxIter, canvasW, canvasH) {
       draft: true,
     };
   }
-  return { rw: canvasW, rh: canvasH, maxIter: userMaxIter, draft: false };
+  return {
+    rw: Math.max(1, Math.floor(canvasW)),
+    rh: Math.max(1, Math.floor(canvasH)),
+    maxIter: userMaxIter,
+    draft: false,
+  };
 }
 
 const params = {
@@ -379,7 +384,12 @@ function syncUI() {
 }
 
 function requestRender(interactive) {
-  if (interactive) quality.interacting = true;
+  if (interactive) {
+    quality.interacting = true;
+  } else {
+    quality.interacting = false;
+    clearTimeout(idleTimer);
+  }
   if (rafPending) return;
   rafPending = true;
   requestAnimationFrame(() => {
@@ -405,7 +415,6 @@ function requestRender(interactive) {
     clearTimeout(idleTimer);
     if (quality.interacting) {
       idleTimer = setTimeout(() => {
-        quality.interacting = false;
         requestRender(false);
       }, quality.idleMs);
     }
