@@ -263,7 +263,6 @@
 </div>
 <script>
 "use strict";
-// Tasks 2–5 fill this in. Keep #sim canvas in the DOM (do not replace stage.innerHTML).
 const canvas = document.getElementById("sim");
 const stage = document.getElementById("stage");
 
@@ -704,7 +703,6 @@ async function initGPU() {
     escapeView: null,
     sampleTex: null,
     sampleView: null,
-    useTwin: false,
     computeBind: null,
     blitBind: null,
     escapeW: 0,
@@ -726,36 +724,21 @@ function resizeEscape(rw, rh) {
   destroyTex(gpu.sampleTex);
   gpu.escapeTex = null;
   gpu.sampleTex = null;
-  gpu.useTwin = false;
 
-  const combinedUsage =
-    GPUTextureUsage.STORAGE_BINDING |
-    GPUTextureUsage.TEXTURE_BINDING |
-    GPUTextureUsage.COPY_SRC;
-
-  try {
-    gpu.escapeTex = gpu.device.createTexture({
-      size: [rw, rh],
-      format: "r32float",
-      usage: combinedUsage,
-    });
-    gpu.escapeView = gpu.escapeTex.createView();
-    gpu.sampleView = gpu.escapeView;
-  } catch (_) {
-    gpu.useTwin = true;
-    gpu.escapeTex = gpu.device.createTexture({
-      size: [rw, rh],
-      format: "r32float",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
-    });
-    gpu.sampleTex = gpu.device.createTexture({
-      size: [rw, rh],
-      format: "r32float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    gpu.escapeView = gpu.escapeTex.createView();
-    gpu.sampleView = gpu.sampleTex.createView();
-  }
+  // Storage write + sampleable twin: avoids STORAGE|TEXTURE_BINDING on one
+  // texture (async validation / driver quirks). copyTextureToTexture before blit.
+  gpu.escapeTex = gpu.device.createTexture({
+    size: [rw, rh],
+    format: "r32float",
+    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
+  });
+  gpu.sampleTex = gpu.device.createTexture({
+    size: [rw, rh],
+    format: "r32float",
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  gpu.escapeView = gpu.escapeTex.createView();
+  gpu.sampleView = gpu.sampleTex.createView();
 
   gpu.escapeW = rw;
   gpu.escapeH = rh;
@@ -806,13 +789,11 @@ function renderFrame(opts) {
     pass.end();
   }
 
-  if (gpu.useTwin) {
-    encoder.copyTextureToTexture(
-      { texture: gpu.escapeTex },
-      { texture: gpu.sampleTex },
-      [rw, rh]
-    );
-  }
+  encoder.copyTextureToTexture(
+    { texture: gpu.escapeTex },
+    { texture: gpu.sampleTex },
+    [rw, rh]
+  );
 
   {
     const pass = encoder.beginRenderPass({
