@@ -318,6 +318,329 @@ function getRenderBudget(q, userMaxIter, canvasW, canvasH) {
   }
   return { rw: canvasW, rh: canvasH, maxIter: userMaxIter, draft: false };
 }
+
+const NOGPU_MSG = "WebGPU indisponible — utilisez une version récente de Chrome, Brave, Edge ou Safari.";
+
+const WGSL_UNIFORMS = /* wgsl */ `
+struct Uniforms {
+  cx: f32, cy: f32, scale: f32, maxIter: f32,
+  cRe: f32, cIm: f32, mode: f32, phase: f32,
+  palette: f32, resX: f32, resY: f32, canvasW: f32,
+  canvasH: f32, _pad1: f32, _pad2: f32, _pad3: f32,
+};
+`;
+
+const WGSL_ESCAPE = /* wgsl */ `
+${WGSL_UNIFORMS}
+@group(0) @binding(0) var<uniform> U: Uniforms;
+@group(0) @binding(1) var escapeTex: texture_storage_2d<r32float, write>;
+
+@compute @workgroup_size(8, 8)
+fn csEscape(@builtin(global_invocation_id) gid: vec3u) {
+  let rw = u32(U.resX); let rh = u32(U.resY);
+  if (gid.x >= rw || gid.y >= rh) { return; }
+  let aspect = U.resX / U.resY;
+  let uv = vec2f(
+    (f32(gid.x) + 0.5) / U.resX,
+    (f32(gid.y) + 0.5) / U.resY
+  );
+  let px = U.cx + (uv.x - 0.5) * 2.0 * U.scale * aspect;
+  let py = U.cy + (0.5 - uv.y) * 2.0 * U.scale;
+
+  var zx: f32; var zy: f32; var cx: f32; var cy: f32;
+  if (U.mode < 0.5) {
+    zx = 0.0; zy = 0.0; cx = px; cy = py; // Mandelbrot
+  } else {
+    zx = px; zy = py; cx = U.cRe; cy = U.cIm; // Julia
+  }
+
+  var i: u32 = 0u;
+  let maxI = u32(U.maxIter);
+  var escaped = false;
+  loop {
+    if (i >= maxI) { break; }
+    let x2 = zx * zx; let y2 = zy * zy;
+    if (x2 + y2 > 256.0) { escaped = true; break; }
+    zy = 2.0 * zx * zy + cy;
+    zx = x2 - y2 + cx;
+    i = i + 1u;
+  }
+
+  var t = f32(maxI); // interior
+  if (escaped) {
+    // smooth escape
+    let logZn = log(zx * zx + zy * zy) / 2.0;
+    let nu = log(logZn / log(2.0)) / log(2.0);
+    t = f32(i) + 1.0 - nu;
+  }
+  textureStore(escapeTex, vec2i(gid.xy), vec4f(t, 0.0, 0.0, 0.0));
+}
+`;
+
+const WGSL_BLIT = /* wgsl */ `
+${WGSL_UNIFORMS}
+@group(0) @binding(0) var escapeTex: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> U: Uniforms;
+
+fn paletteColor(t: f32, pal: f32, phase: f32) -> vec3f {
+  let x = t * 0.015 + phase;
+  if (pal < 0.5) {
+    // fire
+    return vec3f(
+      0.5 + 0.5 * sin(6.28318 * (x + 0.0)),
+      0.5 + 0.5 * sin(6.28318 * (x + 0.33)),
+      0.2 + 0.3 * sin(6.28318 * (x + 0.67))
+    );
+  } else if (pal < 1.5) {
+    // ocean
+    return vec3f(
+      0.1 + 0.3 * sin(6.28318 * (x + 0.2)),
+      0.3 + 0.4 * sin(6.28318 * (x + 0.4)),
+      0.5 + 0.5 * sin(6.28318 * (x + 0.0))
+    );
+  }
+  // mono
+  let g = 0.5 + 0.5 * sin(6.28318 * x);
+  return vec3f(g, g, g);
+}
+
+@vertex
+fn vsFull(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  var xy = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  return vec4f(xy[vi], 0.0, 1.0);
+}
+
+@fragment
+fn fsBlit(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let uv = pos.xy / vec2f(U.canvasW, U.canvasH);
+  let texCoord = vec2i(uv * vec2f(U.resX, U.resY));
+  let t = textureLoad(escapeTex, texCoord, 0).r;
+  if (t >= U.maxIter - 0.5) {
+    return vec4f(0.02, 0.03, 0.05, 1.0); // interior
+  }
+  let col = paletteColor(t, U.palette, U.phase);
+  return vec4f(col, 1.0);
+}
+`;
+
+const UNIFORM_FLOATS = 24; // 96 bytes
+const UNIFORM_BYTES = UNIFORM_FLOATS * 4;
+
+let gpu = null;
+
+function showNoGpu() {
+  stage.className = "nogpu";
+  stage.textContent = NOGPU_MSG;
+}
+
+async function initGPU() {
+  const adapter = navigator.gpu && await navigator.gpu.requestAdapter();
+  if (!adapter) throw new Error("WebGPU unavailable");
+  const device = await adapter.requestDevice();
+  const context = canvas.getContext("webgpu");
+  if (!context) throw new Error("WebGPU canvas context unavailable");
+  const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format: canvasFormat, alphaMode: "opaque" });
+
+  device.lost.then(() => showNoGpu());
+
+  const uniBuf = device.createBuffer({
+    size: UNIFORM_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  const escapeMod = device.createShaderModule({ code: WGSL_ESCAPE });
+  const blitMod = device.createShaderModule({ code: WGSL_BLIT });
+
+  const computePipe = device.createComputePipeline({
+    layout: "auto",
+    compute: { module: escapeMod, entryPoint: "csEscape" },
+  });
+  const blitPipe = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: blitMod, entryPoint: "vsFull" },
+    fragment: { module: blitMod, entryPoint: "fsBlit", targets: [{ format: canvasFormat }] },
+  });
+
+  gpu = {
+    device,
+    context,
+    canvasFormat,
+    uniBuf,
+    uniData: new Float32Array(UNIFORM_FLOATS),
+    computePipe,
+    blitPipe,
+    escapeTex: null,
+    escapeView: null,
+    sampleTex: null,
+    sampleView: null,
+    useTwin: false,
+    computeBind: null,
+    blitBind: null,
+    escapeW: 0,
+    escapeH: 0,
+  };
+}
+
+function destroyTex(tex) {
+  if (tex) tex.destroy();
+}
+
+function resizeEscape(rw, rh) {
+  if (!gpu) return;
+  rw = Math.max(1, rw | 0);
+  rh = Math.max(1, rh | 0);
+  if (gpu.escapeTex && gpu.escapeW === rw && gpu.escapeH === rh) return;
+
+  destroyTex(gpu.escapeTex);
+  destroyTex(gpu.sampleTex);
+  gpu.escapeTex = null;
+  gpu.sampleTex = null;
+  gpu.useTwin = false;
+
+  const combinedUsage =
+    GPUTextureUsage.STORAGE_BINDING |
+    GPUTextureUsage.TEXTURE_BINDING |
+    GPUTextureUsage.COPY_SRC;
+
+  try {
+    gpu.escapeTex = gpu.device.createTexture({
+      size: [rw, rh],
+      format: "r32float",
+      usage: combinedUsage,
+    });
+    gpu.escapeView = gpu.escapeTex.createView();
+    gpu.sampleView = gpu.escapeView;
+  } catch (_) {
+    gpu.useTwin = true;
+    gpu.escapeTex = gpu.device.createTexture({
+      size: [rw, rh],
+      format: "r32float",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
+    });
+    gpu.sampleTex = gpu.device.createTexture({
+      size: [rw, rh],
+      format: "r32float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    gpu.escapeView = gpu.escapeTex.createView();
+    gpu.sampleView = gpu.sampleTex.createView();
+  }
+
+  gpu.escapeW = rw;
+  gpu.escapeH = rh;
+
+  gpu.computeBind = gpu.device.createBindGroup({
+    layout: gpu.computePipe.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpu.uniBuf } },
+      { binding: 1, resource: gpu.escapeView },
+    ],
+  });
+  gpu.blitBind = gpu.device.createBindGroup({
+    layout: gpu.blitPipe.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: gpu.sampleView },
+      { binding: 1, resource: { buffer: gpu.uniBuf } },
+    ],
+  });
+}
+
+function renderFrame(opts) {
+  if (!gpu) return;
+  const {
+    rw, rh, maxIter,
+    cx, cy, scale,
+    mode, cRe, cIm,
+    palette, phase,
+    canvasW, canvasH,
+  } = opts;
+
+  if (!gpu.escapeTex || gpu.escapeW !== rw || gpu.escapeH !== rh) {
+    resizeEscape(rw, rh);
+  }
+
+  const U = gpu.uniData;
+  U[0] = cx; U[1] = cy; U[2] = scale; U[3] = maxIter;
+  U[4] = cRe; U[5] = cIm; U[6] = mode; U[7] = phase;
+  U[8] = palette; U[9] = rw; U[10] = rh; U[11] = canvasW;
+  U[12] = canvasH;
+  gpu.device.queue.writeBuffer(gpu.uniBuf, 0, U);
+
+  const encoder = gpu.device.createCommandEncoder();
+  {
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(gpu.computePipe);
+    pass.setBindGroup(0, gpu.computeBind);
+    pass.dispatchWorkgroups(Math.ceil(rw / 8), Math.ceil(rh / 8));
+    pass.end();
+  }
+
+  if (gpu.useTwin) {
+    encoder.copyTextureToTexture(
+      { texture: gpu.escapeTex },
+      { texture: gpu.sampleTex },
+      [rw, rh]
+    );
+  }
+
+  {
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: gpu.context.getCurrentTexture().createView(),
+        clearValue: { r: 0.02, g: 0.03, b: 0.05, a: 1 },
+        loadOp: "clear",
+        storeOp: "store",
+      }],
+    });
+    pass.setPipeline(gpu.blitPipe);
+    pass.setBindGroup(0, gpu.blitBind);
+    pass.draw(3);
+    pass.end();
+  }
+
+  gpu.device.queue.submit([encoder.finish()]);
+}
+
+function syncCanvasSize() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.floor(rect.width * dpr));
+  const h = Math.max(1, Math.floor(rect.height * dpr));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  return { canvasW: canvas.width, canvasH: canvas.height };
+}
+
+(async function boot() {
+  const { canvasW, canvasH } = syncCanvasSize();
+  try {
+    await initGPU();
+  } catch (err) {
+    console.warn(err);
+    showNoGpu();
+    return;
+  }
+  const budget = getRenderBudget(quality, 256, canvasW, canvasH);
+  resizeEscape(budget.rw, budget.rh);
+  renderFrame({
+    rw: budget.rw,
+    rh: budget.rh,
+    maxIter: budget.maxIter,
+    cx: view.cx,
+    cy: view.cy,
+    scale: view.scale,
+    mode: 0,
+    cRe: -0.4,
+    cIm: 0.6,
+    palette: 0,
+    phase: 0,
+    canvasW,
+    canvasH,
+  });
+})();
 </script>
 </body>
 </html>
