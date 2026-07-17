@@ -264,6 +264,60 @@
 // Tasks 2–5 fill this in. Keep #sim canvas in the DOM (do not replace stage.innerHTML).
 const canvas = document.getElementById("sim");
 const stage = document.getElementById("stage");
+
+const view = { cx: -0.5, cy: 0, scale: 1.2 };
+const SCALE_MAX = 3.0;
+const SCALE_MIN = 1e-6;
+const PRECISION_SCALE = 1e-5;
+
+function screenToComplex(sx, sy, W, H, v) {
+  const aspect = W / H;
+  const x = v.cx + (sx / W - 0.5) * 2 * v.scale * aspect;
+  const y = v.cy + (0.5 - sy / H) * 2 * v.scale;
+  return { x, y };
+}
+
+function panBy(v, dsx, dsy, W, H) {
+  const aspect = W / H;
+  v.cx -= (dsx / W) * 2 * v.scale * aspect;
+  v.cy += (dsy / H) * 2 * v.scale;
+}
+
+function zoomAt(v, sx, sy, W, H, factor) {
+  const before = screenToComplex(sx, sy, W, H, v);
+  v.scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, v.scale * factor));
+  const after = screenToComplex(sx, sy, W, H, v);
+  v.cx += before.x - after.x;
+  v.cy += before.y - after.y;
+}
+
+function zoomSliderToScale(t) {
+  return Math.exp(Math.log(SCALE_MAX) + t * (Math.log(SCALE_MIN) - Math.log(SCALE_MAX)));
+}
+
+function scaleToZoomSlider(scale) {
+  return (Math.log(scale) - Math.log(SCALE_MAX)) / (Math.log(SCALE_MIN) - Math.log(SCALE_MAX));
+}
+
+const quality = {
+  interacting: false,
+  draftScale: 0.25,
+  draftIterCap: 128,
+  idleMs: 100,
+};
+
+function getRenderBudget(q, userMaxIter, canvasW, canvasH) {
+  if (q.interacting) {
+    const rw = Math.max(1, Math.floor(canvasW * q.draftScale));
+    const rh = Math.max(1, Math.floor(canvasH * q.draftScale));
+    return {
+      rw, rh,
+      maxIter: Math.min(userMaxIter, q.draftIterCap),
+      draft: true,
+    };
+  }
+  return { rw: canvasW, rh: canvasH, maxIter: userMaxIter, draft: false };
+}
 </script>
 </body>
 </html>
